@@ -46,7 +46,7 @@ function configured(state) {
   return Boolean(profile?.model && profile.baseUrl && (profile.apiKey || profile.allowNoKey));
 }
 
-export async function createSettingsStore({ path = SETTINGS_PATH, legacyKey, legacyModel = 'deepseek-flash' } = {}) {
+export async function createSettingsStore({ path = SETTINGS_PATH, legacyKey, legacyModel = 'deepseek-flash', allowKeyReveal = false } = {}) {
   let state;
   let failure = null;
   let queue = Promise.resolve();
@@ -105,12 +105,14 @@ export async function createSettingsStore({ path = SETTINGS_PATH, legacyKey, leg
     return {
       revision: state.revision, activeProvider: state.activeProvider, configured: configured(state), setupDismissed: state.setupDismissed,
       providers: PROVIDERS,
+      allowKeyReveal: allowKeyReveal === true,
       profiles: Object.fromEntries(Object.entries(state.profiles).map(([id, { apiKey, ...profile }]) => [id, { ...profile, hasKey: Boolean(apiKey) }])),
     };
   };
   return {
     publicState,
     revealKey(payload) {
+      if (allowKeyReveal !== true) throw new LookupError('API key revealing is disabled.', 403);
       ready();
       if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).some(key => !['revision', 'provider'].includes(key)) || !definition(payload.provider)) throw new LookupError('Choose a saved provider key to reveal.', 400);
       checkRevision(payload.revision);

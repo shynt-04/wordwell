@@ -78,11 +78,12 @@ export async function initSettings(setView) {
     else if (!editingKey && $('settings-key').type === 'password') $('settings-key').value = SAVED_KEY_MASK;
     const reuse = saved?.hasKey && sameEndpoint() && !editingKey;
     $('settings-key').required = Boolean(provider && !noKey && !clear && !reuse);
-    $('settings-key-toggle').disabled = noKey || clear || editingKey && !$('settings-key').value;
+    $('settings-key-toggle').hidden = state?.allowKeyReveal !== true;
+    $('settings-key-toggle').disabled = state?.allowKeyReveal !== true || noKey || clear || editingKey && !$('settings-key').value;
     $('settings-key-change').hidden = !saved?.hasKey || editingKey || noKey || clear;
     $('settings-key-cancel').hidden = !saved?.hasKey || !editingKey || noKey || clear;
     $('settings-key').placeholder = editingKey && saved?.hasKey ? 'Paste your replacement API key' : 'Paste your API key';
-    $('settings-key-note').textContent = noKey ? 'No key will be sent to this endpoint.' : clear ? 'Saving removes this key and disables AI for this profile. Its saved model and endpoint are kept.' : editingKey && saved?.hasKey ? 'Enter a new key, then connect and save. Your saved key stays active until you save the replacement.' : reuse ? 'A key is saved. Show / Hide lets you view it; Change key lets you replace it. Connect uses this saved key.' : saved?.hasKey ? 'The endpoint changed. Choose Change key and re-enter a key before connecting.' : 'Paste your API key, then connect to see its models.';
+    $('settings-key-note').textContent = noKey ? 'No key will be sent to this endpoint.' : clear ? 'Saving removes this key and disables AI for this profile. Its saved model and endpoint are kept.' : editingKey && saved?.hasKey ? 'Enter a new key, then connect and save. Your saved key stays active until you save the replacement.' : reuse ? `A key is saved. ${state.allowKeyReveal === true ? 'Show / Hide lets you view it; ' : ''}Change key lets you replace it. Connect uses this saved key.` : saved?.hasKey ? 'The endpoint changed. Choose Change key and re-enter a key before connecting.' : 'Paste your API key, then connect to see its models.';
     controls();
   }
   function changeKey() {
@@ -215,7 +216,7 @@ export async function initSettings(setView) {
     status('Replacement cancelled. Connect will use your saved key.');
   });
   $('settings-key-toggle').addEventListener('click', async () => {
-    if (saving || loading || $('settings-key').disabled) return;
+    if (state?.allowKeyReveal !== true || saving || loading || $('settings-key').disabled) return;
     if ($('settings-key').type === 'text' || keyReveal) { hideKey(); return; }
     if (editingKey) {
       $('settings-key').type = 'text';

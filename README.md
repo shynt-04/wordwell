@@ -34,6 +34,8 @@ In **Settings**:
 
 Supported providers: **DeepSeek, Google Gemini, Claude, CLIProxyAPI, Ollama**, and other **OpenAI-compatible APIs**. Local services must already be running; Ollama also needs a downloaded model. Compatible endpoints must support model listing at `GET /models`. Image questions require a model that accepts images.
 
+API keys stay masked by default. To enable the **Show / Hide** button, set `ENABLE_API_KEY_REVEAL=true` in `.env`, restart Wordwell, and refresh the browser.
+
 Choose **Continue without AI** to use manual vocabulary entry and reviews offline. AI suggestions may contain mistakes, and Writing bands are practice estimates rather than official IELTS results.
 
 ## Data and backups

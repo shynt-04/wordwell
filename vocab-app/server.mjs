@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { resolve, extname, sep } from 'node:path';
+import { resolve, extname, relative, isAbsolute, sep } from 'node:path';
 import { completeVocabulary, validateLookup, LookupError, DEFAULT_MODEL } from './deepseek.mjs';
 import { assessWriting, validateWritingRequest } from './writing.mjs';
 import { createDatabase, StorageError } from './database.mjs';
@@ -9,6 +9,34 @@ import { createSettingsStore } from './ai-settings.mjs';
 
 const root = fileURLToPath(new URL('./dist/', import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
+const publicAssets = new Set([
+  '/index.html', '/styles.css', '/app.js', '/autofill.js', '/notebook.js',
+  '/persistence.js', '/settings.js', '/writing-data.js', '/writing.js',
+]);
+
+function requestPath(target) {
+  if (!target?.startsWith('/') || target.startsWith('//')) throw new LookupError('Use a local application path.', 400);
+  let pathname;
+  try { pathname = decodeURIComponent(target.split('?')[0]); }
+  catch { throw new LookupError('Invalid URL encoding.', 400); }
+  // Check before URL normalization can discard traversal segments. Backslashes
+  // are directory separators on Windows; reject them on every platform.
+  if (pathname.includes('\\') || pathname.split('/').some(part => part === '.' || part === '..')) throw new LookupError('This path is not allowed.', 403);
+  // No second decoding, Windows drive/stream syntax, or control characters.
+  if (/[%:\u0000-\u001f\u007f#]/u.test(pathname) || pathname.includes('//')) throw new LookupError('Invalid application path.', 400);
+  return pathname;
+}
+
+async function readPublicAsset(staticRoot, pathname) {
+  const asset = pathname === '/' ? '/index.html' : pathname;
+  if (!publicAssets.has(asset)) throw new LookupError('Not found', 404);
+  const directory = await realpath(staticRoot);
+  const target = await realpath(resolve(directory, asset.slice(1)));
+  const withinRoot = relative(directory, target);
+  // Resolve symlinks and Windows junctions before checking containment.
+  if (!withinRoot || withinRoot === '..' || withinRoot.startsWith(`..${sep}`) || isAbsolute(withinRoot)) throw new LookupError('This path is not allowed.', 403);
+  return { contents: await readFile(target), type: types[extname(asset)] };
+}
 
 export async function loadConfig(envFile = new URL('../.env', import.meta.url), environment = process.env) {
   let contents = '';
@@ -16,7 +44,7 @@ export async function loadConfig(envFile = new URL('../.env', import.meta.url), 
   catch (error) { if (error.code !== 'ENOENT') throw new Error('Could not read the local .env configuration.'); }
   const values = {};
   for (const line of contents.split(/\r?\n/u)) {
-    const match = line.match(/^\s*(DEEPSEEK_API_KEY|DEEPSEEK_MODEL|PORT)\s*=\s*(.*?)\s*$/u);
+    const match = line.match(/^\s*(DEEPSEEK_API_KEY|DEEPSEEK_MODEL|PORT|ENABLE_API_KEY_REVEAL)\s*=\s*(.*?)\s*$/u);
     if (!match) continue;
     let value = match[2];
     if (/^(["']).*\1$/u.test(value)) value = value.slice(1, -1);
@@ -26,6 +54,7 @@ export async function loadConfig(envFile = new URL('../.env', import.meta.url), 
     apiKey: environment.DEEPSEEK_API_KEY ?? values.DEEPSEEK_API_KEY,
     model: environment.DEEPSEEK_MODEL || values.DEEPSEEK_MODEL || DEFAULT_MODEL,
     port: Number(environment.PORT || values.PORT || 4173),
+    allowKeyReveal: String(environment.ENABLE_API_KEY_REVEAL ?? values.ENABLE_API_KEY_REVEAL ?? '').trim().toLowerCase() === 'true',
   };
 }
 
@@ -56,9 +85,9 @@ function readJson(request, limit = 4096) {
   });
 }
 
-export function createAppServer({ apiKey, model = DEFAULT_MODEL, lookup = completeVocabulary, writingEvaluator = assessWriting, database = createDatabase() } = {}) {
+export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal = false, settingsPath, staticRoot = root, lookup = completeVocabulary, writingEvaluator = assessWriting, database = createDatabase() } = {}) {
   const cache = new Map();
-  const settingsReady = createSettingsStore({ legacyKey: apiKey, legacyModel: model });
+  const settingsReady = createSettingsStore({ path: settingsPath, legacyKey: apiKey, legacyModel: model, allowKeyReveal });
   let activeRequests = 0;
   const server = createServer(async (request, response) => {
     try {
@@ -66,7 +95,7 @@ export function createAppServer({ apiKey, model = DEFAULT_MODEL, lookup = comple
       const address = server.address();
       const hosts = [`127.0.0.1:${address.port}`, `localhost:${address.port}`];
       if (!hosts.includes(host)) { json(response, 403, { error: 'Use the local Wordwell address.' }); return; }
-      const pathname = decodeURIComponent(new URL(request.url, `http://${host}`).pathname);
+      const pathname = requestPath(request.url);
       if (['/api/settings/ai', '/api/settings/ai/dismiss', '/api/settings/ai/models', '/api/settings/ai/key'].includes(pathname)) {
         if ((request.headers.origin && request.headers.origin !== `http://${host}`) || request.headers['sec-fetch-site'] === 'cross-site') { json(response, 403, { error: 'Settings are only available from your local Wordwell page.' }); return; }
         const settings = await settingsReady;
@@ -137,10 +166,8 @@ export function createAppServer({ apiKey, model = DEFAULT_MODEL, lookup = comple
       }
       if (pathname.startsWith('/api/')) { json(response, 404, { error: 'This API route is not available. Restart Wordwell and refresh the page.' }); return; }
       if (!['GET', 'HEAD'].includes(request.method)) { response.setHeader('Allow', 'GET, HEAD'); response.writeHead(405).end('Method not allowed'); return; }
-      const target = resolve(root, '.' + (pathname === '/' ? '/index.html' : pathname));
-      if (!target.startsWith(root.endsWith(sep) ? root : root + sep)) { response.writeHead(403).end('Forbidden'); return; }
-      const contents = await readFile(target);
-      response.writeHead(200, { 'Content-Type': types[extname(target)] || 'application/octet-stream', 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
+      const { contents, type } = await readPublicAsset(staticRoot, pathname);
+      response.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache', 'X-Content-Type-Options': 'nosniff' });
       response.end(request.method === 'HEAD' ? undefined : contents);
     } catch (error) {
       if (response.destroyed || response.writableEnded) return;

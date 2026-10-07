@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { completeVocabulary, validateLookup, validateCompletion } from '../deepseek.mjs';
 import { createAppServer, loadConfig } from '../server.mjs';
+import { createDatabase } from '../database.mjs';
 
 const entry = { meaning: 'Convincing or interesting.\n-> Thuyết phục, hấp dẫn', pronunciation: '/kəmˈpelɪŋ/', synonyms: 'convincing, persuasive', example: 'She presented a compelling argument for better public transport.' };
 const completion = (value = entry, finish_reason = 'stop') => new Response(JSON.stringify({ choices: [{ finish_reason, message: { content: JSON.stringify(value) } }] }), { status: 200 });
@@ -45,7 +49,7 @@ test('incomplete, unrecognised, and truncated AI results do not become suggestio
   assert.throws(() => validateCompletion({ ...entry, pronunciation: '' }));
   assert.throws(() => validateCompletion({ error: 'not_vocabulary' }), error => error.status === 422);
   await assert.rejects(completeVocabulary('compelling', { apiKey: 'test-key', fetchImpl: async () => completion(entry, 'length') }), /did not finish/);
-  await assert.rejects(completeVocabulary('compelling', { apiKey: 'test-key', fetchImpl: async () => new Response('invalid JSON') }), /Could not reach/);
+  await assert.rejects(completeVocabulary('compelling', { apiKey: 'test-key', fetchImpl: async () => new Response('invalid JSON') }), /unreadable response/);
   await assert.rejects(completeVocabulary('compelling', { apiKey: 'test-key', fetchImpl: async () => completion({ meaning: 'Only one field' }) }), /incomplete/);
 });
 
@@ -71,12 +75,67 @@ test('environment configuration overrides the local file without requiring it', 
 });
 
 async function startServer(t, options) {
-  const server = createAppServer(options);
+  const directory = await mkdtemp(join(tmpdir(), 'wordwell-server-test-'));
+  const server = createAppServer({ ...options, settingsPath: join(directory, 'ai-settings.json'), database: createDatabase(':memory:') });
+  t.after(async () => {
+    await new Promise(resolve => { server.close(resolve); server.closeAllConnections(); });
+    await rm(directory, { recursive: true, force: true });
+  });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }));
   const url = `http://127.0.0.1:${server.address().port}`;
   return { url, endpoint: `${url}/api/vocabulary/complete` };
 }
+
+test('API key revealing requires an explicit true setting and environment overrides the env file', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'wordwell-config-test-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const envFile = join(directory, '.env');
+  await writeFile(envFile, 'ENABLE_API_KEY_REVEAL="true"\n');
+  assert.equal((await loadConfig(envFile, {})).allowKeyReveal, true);
+  for (const value of ['false', '', '1', 'yes']) {
+    assert.equal((await loadConfig(envFile, { ENABLE_API_KEY_REVEAL: value })).allowKeyReveal, false);
+  }
+  await writeFile(envFile, 'PORT=4173\n');
+  assert.equal((await loadConfig(envFile, {})).allowKeyReveal, false);
+  assert.equal((await loadConfig(envFile, { ENABLE_API_KEY_REVEAL: ' TRUE ' })).allowKeyReveal, true);
+});
+
+test('key reveal is blocked by default while saved credentials still power AI requests', async t => {
+  const { url, endpoint } = await startServer(t, { apiKey: 'test-key', lookup: async (word, options) => {
+    assert.equal(options.apiKey, 'test-key');
+    return entry;
+  } });
+  const state = await (await fetch(`${url}/api/settings/ai`)).json();
+  assert.equal(state.allowKeyReveal, false);
+  assert.equal(state.profiles.deepseek.hasKey, true);
+  assert.ok(!JSON.stringify(state).includes('test-key'));
+  for (const payload of [{ revision: state.revision, provider: 'deepseek' }, { allowKeyReveal: true, provider: 'deepseek' }]) {
+    const response = await fetch(`${url}/api/settings/ai/key`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Origin: url }, body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 403);
+    assert.deepEqual(await response.json(), { error: 'API key revealing is disabled.' });
+  }
+  const response = await fetch(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ word: 'compelling' }) });
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), entry);
+});
+
+test('explicitly enabling key reveal allows local requests and preserves origin and revision checks', async t => {
+  const { url } = await startServer(t, { apiKey: 'test-key', allowKeyReveal: true });
+  const state = await (await fetch(`${url}/api/settings/ai`)).json();
+  assert.equal(state.allowKeyReveal, true);
+  assert.ok(!JSON.stringify(state).includes('test-key'));
+  const reveal = (revision, origin = url) => fetch(`${url}/api/settings/ai/key`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: origin }, body: JSON.stringify({ revision, provider: 'deepseek' }),
+  });
+  assert.equal((await reveal(state.revision, 'https://other.example')).status, 403);
+  assert.equal((await reveal(state.revision + 1)).status, 409);
+  const response = await reveal(state.revision);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(await response.json(), { apiKey: 'test-key' });
+});
 
 test('local API completes a word, caches repeats, and does not serve the env file', async t => {
   let calls = 0;
