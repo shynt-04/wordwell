@@ -4,11 +4,11 @@ A local IELTS practice app for building vocabulary with spaced repetition and ge
 
 ## Features
 
-- **Vocabulary notebook** — Save words, meanings, British IPA, synonyms, examples, and notes. Search, edit, and hear pronunciation.
-- **Spaced repetition** — Review due words with Again, Hard, Good, and Easy ratings; track daily progress and streaks.
-- **AI autofill** — Generate English and Vietnamese meanings, pronunciation, synonyms, and IELTS-style examples.
-- **Writing practice** — Submit a question, essay, and optional image for estimated bands, corrections, and an improved response. Feedback is available in English or Vietnamese.
-- **Local storage** — Keep vocabulary, review history, and your current Writing draft in SQLite, with database and vocabulary JSON backups.
+- **Vocabulary notebook:** Save words, meanings, British IPA, synonyms, examples, and notes. Search, edit, and hear pronunciation.
+- **Spaced repetition:** Review due words with Again, Hard, Good, and Easy ratings; track daily progress and streaks.
+- **AI autofill:** Generate English and Vietnamese meanings, pronunciation, synonyms, and IELTS-style examples.
+- **Writing practice:** Submit a question, essay, and optional image for estimated bands, corrections, and an improved response. Feedback is available in English or Vietnamese.
+- **Local storage:** Keep vocabulary, review history, and your current Writing draft in SQLite, with database and vocabulary JSON backups.
 
 ## Quick start
 
