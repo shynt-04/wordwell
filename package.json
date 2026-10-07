@@ -1,0 +1,12 @@
+{
+  "name": "wordwell",
+  "version": "2.3.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch vocab-app/server.mjs",
+    "start": "node vocab-app/server.mjs",
+    "test": "node --test vocab-app/tests/*.test.mjs"
+  },
+  "engines": { "node": ">=24" }
+}
