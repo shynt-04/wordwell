@@ -134,8 +134,8 @@ export async function initSettings(setView) {
     const model = discovered?.models.find(item => item.id === $('settings-model').value);
     $('settings-vision').disabled = model?.vision === false;
     $('settings-vision').checked = model?.vision === false ? false : model && profile()?.model === model.id ? profile().vision : definition()?.vision ?? false;
-    $('settings-model-help').textContent = model ? `Model ID: ${model.id}` : 'Choose a model to use for vocabulary and Writing.';
-    $('settings-vision-help').textContent = model?.vision === true ? 'The provider lists image input support for this model.' : model?.vision === false ? 'This model accepts text only. Choose another model for image questions.' : 'Image support was not reported. Enable image questions only if this model supports them.';
+    $('settings-model-help').textContent = model ? `Model ID: ${model.id}` : 'Choose a model for vocabulary, passages, and Writing.';
+    $('settings-vision-help').textContent = model?.vision === true ? 'The provider lists image input support for this model.' : model?.vision === false ? 'This model accepts text only. Choose another model for screenshots or image questions.' : 'Image support was not reported. Enable image input only if this model supports it.';
     controls();
   }
   function credentialsValid() {

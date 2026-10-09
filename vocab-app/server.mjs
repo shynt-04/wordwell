@@ -6,12 +6,14 @@ import { completeVocabulary, validateLookup, LookupError, DEFAULT_MODEL } from '
 import { assessWriting, validateWritingRequest } from './writing.mjs';
 import { createDatabase, StorageError } from './database.mjs';
 import { createSettingsStore } from './ai-settings.mjs';
+import { analysePassage, extractPassage, validatePassageRequest, validateExtractionRequest } from './passage.mjs';
 
 const root = fileURLToPath(new URL('./dist/', import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
 const publicAssets = new Set([
-  '/index.html', '/styles.css', '/app.js', '/autofill.js', '/notebook.js',
+  '/index.html', '/styles.css', '/app.js', '/autofill.js', '/notebook.js', '/review-session.js',
   '/persistence.js', '/settings.js', '/writing-data.js', '/writing.js',
+  '/passage.js', '/passage-data.js', '/image-input.js',
 ]);
 
 function requestPath(target) {
@@ -85,7 +87,7 @@ function readJson(request, limit = 4096) {
   });
 }
 
-export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal = false, settingsPath, staticRoot = root, lookup = completeVocabulary, writingEvaluator = assessWriting, database = createDatabase() } = {}) {
+export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal = false, settingsPath, staticRoot = root, lookup = completeVocabulary, writingEvaluator = assessWriting, passageAnalyser = analysePassage, passageExtractor = extractPassage, database = createDatabase() } = {}) {
   const cache = new Map();
   const settingsReady = createSettingsStore({ path: settingsPath, legacyKey: apiKey, legacyModel: model, allowKeyReveal });
   let activeRequests = 0;
@@ -137,16 +139,20 @@ export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal 
         json(response, ['notebook', 'writing', 'migrate', 'backup'].includes(kind) ? 405 : 404, { error: 'This database action is not available.' });
         return;
       }
-      if (pathname === '/api/vocabulary/complete' || pathname === '/api/writing/assess') {
+      if (['/api/vocabulary/complete', '/api/writing/assess', '/api/passage/analyse', '/api/passage/extract'].includes(pathname)) {
         const isWriting = pathname === '/api/writing/assess';
+        const isPassage = pathname === '/api/passage/analyse';
+        const isExtraction = pathname === '/api/passage/extract';
         if (request.method !== 'POST') { response.setHeader('Allow', 'POST'); json(response, 405, { error: 'Use POST for AI requests.' }); return; }
         if ((request.headers.origin && request.headers.origin !== `http://${host}`) || request.headers['sec-fetch-site'] === 'cross-site') { json(response, 403, { error: 'AI requests are only available from your local Wordwell page.' }); return; }
         if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') { json(response, 415, { error: 'Use a JSON request.' }); return; }
-        const payload = await readJson(request, isWriting ? 3 * 1024 * 1024 : 4096);
+        const payload = await readJson(request, isExtraction ? 12 * 1024 * 1024 : isPassage ? 192 * 1024 : isWriting ? 3 * 1024 * 1024 : 4096);
         const writingInput = isWriting ? validateWritingRequest(payload) : null;
-        const word = isWriting ? null : validateLookup(payload);
+        const passageInput = isPassage ? validatePassageRequest(payload) : isExtraction ? validateExtractionRequest(payload) : null;
+        const word = isWriting || isPassage || isExtraction ? null : validateLookup(payload);
         const configuration = (await settingsReady).active();
-        const key = isWriting ? null : `${configuration.revision}:${configuration.provider}:${configuration.model}:${word.normalize('NFKC').toLocaleLowerCase('en')}`;
+        if (isExtraction && !configuration.vision) throw new LookupError('Image input is disabled. Choose an image-capable model and enable image input in Settings, or paste text instead.', 400);
+        const key = word === null ? null : `${configuration.revision}:${configuration.provider}:${configuration.model}:${word.normalize('NFKC').toLocaleLowerCase('en')}`;
         const cached = key ? cache.get(key) : null;
         if (cached && cached.expires > Date.now()) { json(response, 200, cached.entry); return; }
         if (activeRequests >= 2) { json(response, 429, { error: 'Other AI requests are running. Please try again shortly.' }); return; }
@@ -154,7 +160,8 @@ export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal 
         response.on('close', () => controller.abort());
         activeRequests++;
         try {
-          const entry = await (isWriting ? writingEvaluator(writingInput, { ...configuration, signal: controller.signal }) : lookup(word, { ...configuration, signal: controller.signal }));
+          const options = { ...configuration, signal: controller.signal };
+          const entry = await (isPassage ? passageAnalyser(passageInput, options) : isExtraction ? passageExtractor(passageInput, options) : isWriting ? writingEvaluator(writingInput, options) : lookup(word, options));
           if (controller.signal.aborted) return;
           if (key) {
             if (cache.size >= 200) cache.delete(cache.keys().next().value);

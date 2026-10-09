@@ -42,7 +42,7 @@ function rawRequest(url, path, method = 'GET') {
 
 test('all frontend files remain accessible with query strings and HEAD requests', async t => {
   const { url } = await startServer(t);
-  for (const path of ['/', '/index.html', '/styles.css', '/app.js', '/autofill.js', '/notebook.js', '/persistence.js', '/settings.js', '/writing-data.js', '/writing.js']) {
+  for (const path of ['/', '/index.html', '/styles.css', '/app.js', '/autofill.js', '/notebook.js', '/review-session.js', '/persistence.js', '/settings.js', '/writing-data.js', '/writing.js', '/passage.js', '/passage-data.js', '/image-input.js']) {
     const response = await rawRequest(url, `${path}?v=1`);
     assert.equal(response.status, 200, path);
     assert.ok(response.body.length > 0, path);

@@ -15,7 +15,14 @@ export function cleanFields(input) {
 }
 
 export function createWord(input, now = Date.now()) {
-  return { ...cleanFields(input), id: crypto.randomUUID(), createdAt: now, updatedAt: now, dueAt: now, interval: 0, repetitions: 0, lapses: 0, lastReviewedAt: null };
+  return { ...cleanFields(input), id: crypto.randomUUID(), createdAt: now, updatedAt: now, dueAt: now, interval: 0, repetitions: 0, lapses: 0, lastReviewedAt: null, production: freshProgress(now) };
+}
+
+function freshProgress(now) { return { updatedAt: now, dueAt: now, interval: 0, repetitions: 0, lapses: 0, lastReviewedAt: null }; }
+
+export function reviewProgress(word, direction = 'meaning') {
+  if (!['meaning', 'word'].includes(direction)) throw new Error('Choose a valid review direction.');
+  return direction === 'word' ? word.production || freshProgress(word.createdAt) : word;
 }
 
 export function normalizedWord(word) { return word.trim().normalize('NFKC').toLocaleLowerCase('en'); }
@@ -31,9 +38,11 @@ export function nextInterval(word, rating) {
   }
 }
 
-export function scheduleWord(word, rating, now = Date.now()) {
-  const interval = nextInterval(word, rating);
-  return { ...word, interval, dueAt: now + Math.round(interval * DAY), lastReviewedAt: now, updatedAt: now, repetitions: rating === 'again' ? 0 : word.repetitions + 1, lapses: word.lapses + (rating === 'again' ? 1 : 0) };
+export function scheduleWord(word, rating, now = Date.now(), direction = 'meaning') {
+  const progress = reviewProgress(word, direction);
+  const interval = nextInterval(progress, rating);
+  const scheduled = { interval, dueAt: now + Math.round(interval * DAY), lastReviewedAt: now, updatedAt: now, repetitions: rating === 'again' ? 0 : progress.repetitions + 1, lapses: progress.lapses + (rating === 'again' ? 1 : 0) };
+  return direction === 'word' ? { ...word, production: scheduled } : { ...word, ...scheduled };
 }
 
 export function localDate(timestamp = Date.now()) {
@@ -50,7 +59,7 @@ export function practiceStreak(log, now = Date.now()) {
   return count;
 }
 
-export function emptyNotebook() { return { version: 1, words: [], reviews: [] }; }
+export function emptyNotebook() { return { version: 2, words: [], reviews: [] }; }
 
 function finite(value, name) {
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > Number.MAX_SAFE_INTEGER) throw new Error(`Invalid backup: ${name}.`);
@@ -58,7 +67,7 @@ function finite(value, name) {
 }
 
 export function validateNotebook(input) {
-  if (!input || typeof input !== 'object' || input.version !== 1 || !Array.isArray(input.words) || !Array.isArray(input.reviews)) throw new Error('This is not a supported Wordwell backup.');
+  if (!input || typeof input !== 'object' || ![1, 2].includes(input.version) || !Array.isArray(input.words) || !Array.isArray(input.reviews)) throw new Error('This is not a supported Wordwell backup.');
   if (input.words.length > 50_000 || input.reviews.length > 200_000) throw new Error('This backup is too large.');
   const ids = new Set();
   const names = new Set();
@@ -74,18 +83,30 @@ export function validateNotebook(input) {
     if (!Number.isInteger(clean.repetitions) || !Number.isInteger(clean.lapses)) throw new Error('Invalid backup: review counts.');
     clean.lastReviewedAt = word.lastReviewedAt === null ? null : finite(word.lastReviewedAt, 'lastReviewedAt');
     if (clean.lastReviewedAt !== null && Number.isNaN(new Date(clean.lastReviewedAt).getTime())) throw new Error('Invalid backup: review date outside supported range.');
+    const production = word.production ?? (input.version === 1 ? freshProgress(clean.createdAt) : null);
+    if (!production || typeof production !== 'object') throw new Error('Invalid backup: word recall progress.');
+    clean.production = {};
+    for (const field of ['updatedAt', 'dueAt', 'interval', 'repetitions', 'lapses']) clean.production[field] = finite(production[field], `word recall ${field}`);
+    for (const field of ['updatedAt', 'dueAt']) if (Number.isNaN(new Date(clean.production[field]).getTime())) throw new Error('Invalid backup: word recall date.');
+    if (!Number.isInteger(production.repetitions) || !Number.isInteger(production.lapses)) throw new Error('Invalid backup: word recall counts.');
+    clean.production.lastReviewedAt = production.lastReviewedAt === null ? null : finite(production.lastReviewedAt, 'word recall lastReviewedAt');
+    if (clean.production.lastReviewedAt !== null && Number.isNaN(new Date(clean.production.lastReviewedAt).getTime())) throw new Error('Invalid backup: word recall review date.');
     return clean;
   });
   const reviewIds = new Set();
   const reviews = input.reviews.map(review => {
     if (!review || typeof review.id !== 'string' || !review.id || review.id.length > 100 || reviewIds.has(review.id) || typeof review.wordId !== 'string' || !review.wordId || review.wordId.length > 100 || !['again', 'hard', 'good', 'easy'].includes(review.rating)) throw new Error('Invalid backup: review history.');
     reviewIds.add(review.id);
-    return { id: review.id, wordId: review.wordId, rating: review.rating, at: finite(review.at, 'review timestamp') };
+    const direction = review.direction ?? 'meaning';
+    if (!['meaning', 'word'].includes(direction)) throw new Error('Invalid backup: review direction.');
+    return { id: review.id, wordId: review.wordId, rating: review.rating, at: finite(review.at, 'review timestamp'), direction };
   });
-  return { version: 1, words, reviews };
+  return { version: 2, words, reviews };
 }
 
 export function mergeNotebooks(current, incoming) {
+  current = validateNotebook(current);
+  incoming = validateNotebook(incoming);
   const words = current.words.map(word => ({ ...word }));
   const byId = new Map(words.map(word => [word.id, word]));
   const byName = new Map(words.map(word => [normalizedWord(word.word), word]));
@@ -95,11 +116,16 @@ export function mergeNotebooks(current, incoming) {
     const existing = byId.get(word.id) || byName.get(normalizedWord(word.word));
     if (existing) {
       aliases.set(word.id, existing.id);
+      // Content edits must not overwrite newer practice in either direction.
+      const recognition = (word.lastReviewedAt ?? -1) > (existing.lastReviewedAt ?? -1) ? word : existing;
+      const production = word.production.updatedAt > existing.production.updatedAt ? word.production : existing.production;
+      const schedule = Object.fromEntries(['dueAt', 'interval', 'repetitions', 'lapses', 'lastReviewedAt'].map(key => [key, recognition[key]]));
       if (word.updatedAt > existing.updatedAt) {
         byName.delete(normalizedWord(existing.word));
         Object.assign(existing, word, { id: existing.id });
         byName.set(normalizedWord(existing.word), existing);
       }
+      Object.assign(existing, schedule, { production });
     } else {
       const copy = { ...word };
       words.push(copy);
@@ -110,7 +136,7 @@ export function mergeNotebooks(current, incoming) {
   }
   const reviews = new Map(current.reviews.map(review => [review.id, { ...review }]));
   for (const review of incoming.reviews) if (!reviews.has(review.id)) reviews.set(review.id, { ...review, wordId: aliases.get(review.wordId) || review.wordId });
-  const notebook = validateNotebook({ version: 1, words, reviews: [...reviews.values()].sort((a, b) => a.at - b.at) });
+  const notebook = validateNotebook({ version: 2, words, reviews: [...reviews.values()].sort((a, b) => a.at - b.at) });
   return { notebook, added };
 }
 

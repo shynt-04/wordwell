@@ -5,8 +5,9 @@ A local IELTS practice app for building vocabulary with spaced repetition and ge
 ## Features
 
 - **Vocabulary notebook:** Save words, meanings, British IPA, synonyms, examples, and notes. Search, edit, and hear pronunciation.
-- **Spaced repetition:** Review due words with Again, Hard, Good, and Easy ratings; track daily progress and streaks.
+- **Two-way recall:** Choose **Understand** (word → meaning) or optional **Use it** (meaning → typed word), with separate spaced-repetition schedules and daily progress. Rate your own recall; synonyms need not be wrong. **Again** retries wait one minute while you practice other words or take a breather.
 - **AI autofill:** Generate English and Vietnamese meanings, pronunciation, synonyms, and IELTS-style examples.
+- **From a passage:** Paste a reading passage or listening transcript and optional questions as text or ordered screenshots. Check extracted text, explore supported synonym/paraphrase connections, and preview only the cards you choose to save.
 - **Writing practice:** Submit a question, essay, and optional image for estimated bands, corrections, and an improved response. Feedback is available in English or Vietnamese.
 - **Local storage:** Keep vocabulary, review history, and your current Writing draft in SQLite, with database and vocabulary JSON backups.
 
@@ -38,6 +39,8 @@ API keys stay masked by default. To enable the **Show / Hide** button, set `ENAB
 
 Choose **Continue without AI** to use manual vocabulary entry and reviews offline. AI suggestions may contain mistakes, and Writing bands are practice estimates rather than official IELTS results.
 
+For screenshots, select an image-capable model and **Enable image input**. In **From a passage**, paste with `Ctrl+V`, upload, or drag in up to four images per section. Extract and correct the text before finding cards. Unsaved material stays in the open tab only; saved cards retain context and question connections. Submissions go to your provider and may incur usage charges.
+
 ## Data and backups
 
 Wordwell creates these files locally; both are excluded from Git:
@@ -48,6 +51,8 @@ Wordwell creates these files locally; both are excluded from Git:
 | `data/ai-settings.json` | Provider settings and API keys, stored in plain text |
 
 Use **Backup & restore → Download SQLite backup** for a complete learning-data backup. To restore, stop Wordwell, keep a copy of the current database, replace `data/wordwell.sqlite` with your backup, and restart. Vocabulary JSON backups cover vocabulary and reviews only; neither backup includes AI credentials.
+
+Upgrades preserve existing Understand progress and start Use it as new. Older JSON and SQLite backups are supported; new backups include both directions and require this version or later. Back up before upgrading.
 
 Cloud AI requests send the word being looked up, or the Writing question, essay, and attached image, to your chosen provider. Keep local credential files private. When upgrading from an older browser-storage version, first open the app in the same browser and at the same address to migrate your data.
 
@@ -70,6 +75,7 @@ vocab-app/
   ai-*.mjs       Provider settings, model discovery, and requests
   deepseek.mjs   Vocabulary prompts and validation
   writing.mjs    Writing assessment and validation
+  passage.mjs    Image extraction and vocabulary connections
 ```
 
 The app uses ES modules and Node.js built-ins, including SQLite. Despite its name, `vocab-app/dist/` contains editable frontend source.

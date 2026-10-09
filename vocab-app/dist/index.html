@@ -30,6 +30,7 @@
       <nav aria-label="Main navigation">
         <button class="nav-item active" data-view="today" aria-current="page"><svg><use href="#i-sun"/></svg>Daily practice<span id="nav-due" class="nav-count">0</span></button>
         <button class="nav-item" data-view="library"><svg><use href="#i-book"/></svg>My vocabulary<span id="nav-total" class="subtle-count">0</span></button>
+        <button class="nav-item" data-view="passage"><svg><use href="#i-search"/></svg>From a passage</button>
         <button class="nav-item" data-view="writing"><svg><use href="#i-edit"/></svg>Writing practice</button>
         <button class="nav-item" data-view="settings"><svg><use href="#i-settings"/></svg>Settings</button>
       </nav>
@@ -44,9 +45,15 @@
           <div class="page-heading"><div><p class="eyebrow" id="today-date">YOUR DAILY PRACTICE</p><h1>A few words, every day.</h1><p class="muted">Build the vocabulary you’ll remember when it matters.</p></div><div class="heading-stamp" aria-hidden="true"><svg><use href="#i-spark"/></svg></div></div>
           <div class="workspace-grid">
             <div class="practice-column">
+              <div class="practice-choice-heading"><h2>How will you practice today?</h2><span>Two ways to know a word.</span></div>
+              <div class="practice-modes" role="group" aria-label="Choose your practice mode">
+                <button class="practice-mode" type="button" data-review-direction="meaning" aria-pressed="true"><span class="mode-symbol" aria-hidden="true">Aa → ✦</span><span class="mode-name">Understand <small>Start here</small></span><span class="mode-description">See the word. Recall its meaning.</span><span class="mode-count">0 ready · 0 practiced</span></button>
+                <button class="practice-mode" type="button" data-review-direction="word" aria-pressed="false"><span class="mode-symbol" aria-hidden="true">✦ → Aa</span><span class="mode-name">Use it <small>Optional challenge</small></span><span class="mode-description">See the meaning. Type the word.</span><span class="mode-count">0 ready · 0 practiced</span></button>
+              </div>
               <section class="review-panel" aria-labelledby="review-title"><div class="review-panel-top"><span class="light-eyebrow">READY WHEN YOU ARE</span><span class="review-chip">Spaced repetition</span></div><div class="review-main"><div><h2 id="review-title">Make it stick.</h2><p id="review-description">Add your first word to begin your practice.</p><button class="button white" id="start-review">Add your first word</button><p class="keyboard-hint">A little recall goes a long way.</p></div><div class="card-stack" aria-hidden="true"><div class="stack-card back"></div><div class="stack-card middle"></div><div class="stack-card front"><span>YOUR NEXT SESSION</span><strong id="due-number">0</strong><small>words to review</small><div class="stack-line"></div><span class="stack-star">✦</span></div></div></div></section>
               <div class="stats-grid"><div class="stat-card"><span class="stat-icon blue"><svg><use href="#i-book"/></svg></span><div><strong id="total-stat">0</strong><span>words collected</span></div></div><div class="stat-card"><span class="stat-icon green"><svg><use href="#i-check"/></svg></span><div><strong id="reviews-stat">0</strong><span>reviewed today</span></div></div><div class="stat-card"><span class="stat-icon orange"><svg><use href="#i-sun"/></svg></span><div><strong id="streak-stat">0 <small>days</small></strong><span>practice streak</span></div></div></div>
               <section class="recent-section"><div class="section-heading"><h2>Fresh in your notebook <span id="recent-count" class="count-label">0</span></h2><button class="text-button" id="see-library">View all words</button></div><div id="recent-words" class="word-list"></div></section>
+              <div class="passage-invitation"><div><strong>Finished reading or listening?</strong><p>Find a few words worth keeping, and connect them to the questions.</p></div><button type="button" class="text-button" data-view="passage">Bring in a passage →</button></div>
               <div class="practice-tip"><span class="tip-symbol">✦</span><p><strong>Make it yours.</strong> A sentence from your own life makes a new word easier to remember.</p></div>
             </div>
             <aside class="add-panel">
@@ -77,6 +84,27 @@
         </section>
 
         <section id="library-view" class="view" hidden><div class="page-heading"><div><p class="eyebrow">YOUR PERSONAL COLLECTION</p><h1>Words worth keeping.</h1><p class="muted">Every word here is one you chose to learn.</p></div><button class="button primary" id="library-add"><svg><use href="#i-plus"/></svg>Add a word</button></div><div class="library-toolbar"><label class="search-field"><svg><use href="#i-search"/></svg><input id="search" type="search" placeholder="Find a word, meaning, or note…" aria-label="Search vocabulary"></label><div class="filter-group" aria-label="Filter words"><button class="filter active" data-filter="all" aria-pressed="true">All words</button><button class="filter" data-filter="due" aria-pressed="false">Due now</button><button class="filter" data-filter="new" aria-pressed="false">New</button></div><label class="sort-label">Sort <select id="sort"><option value="newest">Newest first</option><option value="alphabetical">A–Z</option><option value="due">Next review</option></select></label></div><p class="library-count" id="library-count"></p><div id="library-words" class="library-grid"></div></section>
+
+        <section id="passage-view" class="view" hidden>
+          <div class="page-heading"><div><p class="eyebrow">FROM STUDYING TO REMEMBERING</p><h1>Keep the words that matter.</h1><p class="muted">Bring in what you just read or heard. Find the connections, then choose your cards.</p></div><span class="badge">A small, useful shortlist</span></div>
+          <div class="passage-steps" aria-label="Passage learning steps"><span><b>1</b>Add your material</span><span><b>2</b>Check the text</span><span><b>3</b>Choose your cards</span></div>
+          <form id="passage-form" class="passage-form">
+            <div class="passage-options"><label for="passage-type">I just practised<select id="passage-type"><option value="reading">Reading</option><option value="listening">Listening</option></select></label><label for="passage-title">Source or title <span class="optional">optional</span><input id="passage-title" type="text" maxlength="120" placeholder="e.g. Cambridge practice, passage 2"></label></div>
+            <div id="passage-inputs" class="passage-inputs"></div>
+            <details class="passage-personalise"><summary>Make the shortlist more personal <span>optional</span></summary><div><label for="passage-unfamiliar">Words or phrases you found unfamiliar</label><textarea id="passage-unfamiliar" rows="2" maxlength="1200" placeholder="One per line, or separated by commas. Leave empty for AI suggestions."></textarea><label for="passage-answerNotes">Your answers / answer key / notes</label><textarea id="passage-answerNotes" rows="3" maxlength="6000" placeholder="e.g. Question 4: I chose B, but the key says C. I missed the phrase ‘put off’."></textarea><p>These notes help focus suggestions, not provide an official score. A transcript cannot tell us what you recognised in the audio.</p></div></details>
+            <div class="passage-submit"><button id="passage-analyse" type="submit" class="button primary"><svg aria-hidden="true"><use href="#i-spark"/></svg>Find words worth keeping</button><button id="passage-stop" type="button" class="button secondary" hidden>Stop request</button><button id="passage-clear" type="button" class="text-button">Clear working material</button></div>
+          </form>
+          <p id="passage-status" class="passage-status" role="status" aria-live="polite" hidden></p>
+          <div class="passage-privacy"><p id="passage-ai-note">Uses your saved AI provider.</p><button id="passage-settings-link" type="button" class="text-button">AI settings</button><p>Text and images are sent only when you click Extract or Find words. Provider usage charges may apply. Working material stays in this tab, not in backups; selected cards save to your local notebook.</p></div>
+          <section id="passage-results" class="passage-results" aria-labelledby="passage-results-title" tabindex="-1" hidden>
+            <div class="section-heading"><div><p class="eyebrow">A FEW GOOD CONNECTIONS</p><h2 id="passage-results-title">Choose what you want to remember.</h2></div><div class="passage-selection"><button id="passage-select-recommended" type="button" class="text-button">Select Learn now</button><button id="passage-select-none" type="button" class="text-button">Clear selection</button></div></div>
+            <p id="passage-summary" class="muted"></p><ul id="passage-limitations" class="passage-limitations" hidden></ul>
+            <p id="passage-stale" class="passage-stale" role="status" hidden>Your material or screenshots changed. Analyse again before saving these suggestions.</p>
+            <p id="passage-no-results" class="passage-no-results" hidden>No supported suggestions yet. Try a clearer passage or tell us which words you found unfamiliar.</p>
+            <div id="passage-candidates" class="passage-candidates"></div>
+            <div class="passage-save-bar"><button id="passage-save" type="button" class="button primary" disabled>Choose cards to save</button><p id="passage-save-note"></p></div>
+          </section>
+        </section>
 
         <section id="writing-view" class="view" hidden>
           <div class="page-heading"><div><p class="eyebrow">IELTS WRITING PRACTICE</p><h1>Write. Reflect. Improve.</h1><p class="muted">Find the next change that makes your writing stronger.</p></div><span class="writing-save" id="writing-save-status" role="status">Loading your draft…</span></div>
@@ -137,7 +165,7 @@
                     <p id="settings-connection-status" class="settings-status" role="status" aria-live="polite" hidden></p>
                     <div id="settings-model-section" class="settings-model-section" hidden>
                       <label for="settings-model">Available models</label><select id="settings-model" name="model" required disabled aria-describedby="settings-model-help"></select><p id="settings-model-help" class="settings-help"></p>
-                      <div class="settings-options"><label class="settings-check"><input id="settings-vision" type="checkbox">Enable image questions</label><p id="settings-vision-help" class="settings-help">The selected model must support images to review charts and diagrams.</p><label id="settings-json-row" class="settings-check"><input id="settings-json-mode" type="checkbox">Request JSON mode</label><p id="settings-json-help" class="settings-help">For compatible APIs, turn this off only if your endpoint rejects JSON mode. Wordwell still requires a valid JSON answer.</p></div>
+                      <div class="settings-options"><label class="settings-check"><input id="settings-vision" type="checkbox">Enable image input</label><p id="settings-vision-help" class="settings-help">The selected model must support images for passage extraction and Writing charts or diagrams.</p><label id="settings-json-row" class="settings-check"><input id="settings-json-mode" type="checkbox">Request JSON mode</label><p id="settings-json-help" class="settings-help">For compatible APIs, turn this off only if your endpoint rejects JSON mode. Wordwell still requires a valid JSON answer.</p></div>
                     </div>
                   </div>
                 </fieldset>
@@ -178,7 +206,9 @@
     </form>
   </dialog>
   <dialog id="confirm-dialog" class="confirm-dialog"><h2 id="confirm-title"></h2><p id="confirm-description"></p><div id="confirm-actions" class="confirm-actions"></div></dialog>
-  <dialog id="review-dialog" class="review-dialog"><div id="review-content"></div></dialog>
+  <dialog id="passage-card-dialog" class="edit-dialog" aria-labelledby="passage-card-title"><div class="dialog-heading"><h2 id="passage-card-title">Preview your card</h2><button type="button" class="icon-button" data-close="passage-card-dialog" aria-label="Close card preview"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div><p class="muted small">Edit anything before saving. This preview does not add a card to your notebook.</p><form id="passage-card-form"><label for="passage-edit-word">Word or phrase *</label><input id="passage-edit-word" name="word" required maxlength="120"><label for="passage-edit-meaning">Meaning *</label><textarea id="passage-edit-meaning" name="meaning" rows="3" required maxlength="2000"></textarea><label for="passage-edit-pronunciation">Pronunciation</label><input id="passage-edit-pronunciation" name="pronunciation" maxlength="160"><label for="passage-edit-synonyms">Synonyms</label><input id="passage-edit-synonyms" name="synonyms" maxlength="500"><label for="passage-edit-example">Original context / example</label><textarea id="passage-edit-example" name="example" rows="3" maxlength="3000"></textarea><label for="passage-edit-note">Question connection and notes</label><textarea id="passage-edit-note" name="note" rows="5" maxlength="3000"></textarea><p id="passage-edit-error" class="form-error" role="alert" hidden></p><button type="submit" class="button primary full">Update preview</button></form></dialog>
+  <dialog id="review-dialog" class="review-dialog" aria-label="Vocabulary practice"><div id="review-content"></div></dialog>
+  <dialog id="passage-image-dialog" class="passage-image-dialog" aria-labelledby="passage-image-title"><div class="dialog-heading"><h2 id="passage-image-title">Your screenshot</h2><button type="button" class="icon-button" data-close="passage-image-dialog" aria-label="Close screenshot preview"><svg aria-hidden="true"><use href="#i-close"/></svg></button></div><img id="passage-image-large" alt="Enlarged study material screenshot"></dialog>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script type="module" src="app.js"></script>
 </body>

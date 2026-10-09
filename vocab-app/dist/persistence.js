@@ -30,8 +30,8 @@ export function createNotebookStore() {
       catch { this.migrationWarning = 'Browser storage could not be read for migration. Existing SQLite data is available.'; }
       if (old !== null && old !== undefined) {
         let incoming;
-        try { incoming = validateNotebook(JSON.parse(old)); }
-        catch { this.migrationWarning = 'Your old browser notebook could not be imported. It has been preserved; download a browser recovery copy from Backup & restore.'; }
+        try { incoming = JSON.parse(old); validateNotebook(incoming); }
+        catch { incoming = null; this.migrationWarning = 'Your old browser notebook could not be imported. It has been preserved; download a browser recovery copy from Backup & restore.'; }
         if (incoming) {
           data = await send('migrate', 'POST', { kind: 'notebook', value: incoming });
           revision = data.revision;

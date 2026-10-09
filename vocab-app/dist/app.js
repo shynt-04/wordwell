@@ -1,8 +1,11 @@
-import { DAY, STORAGE_KEY, cleanFields, createWord, normalizedWord, nextInterval, scheduleWord, localDate, practiceStreak, emptyNotebook, validateNotebook, mergeNotebooks } from './notebook.js';
+import { DAY, STORAGE_KEY, cleanFields, createWord, normalizedWord, nextInterval, scheduleWord, reviewProgress, localDate, practiceStreak, emptyNotebook, validateNotebook, mergeNotebooks } from './notebook.js';
+import { createReviewSession, readyCard, retryDelay, completeCard, answerMatches } from './review-session.js';
 import { wireAutofill } from './autofill.js';
 import { initWriting } from './writing.js';
 import { createNotebookStore } from './persistence.js';
 import { initSettings } from './settings.js';
+import { initPassage } from './passage.js';
+import { newPassageCards } from './passage-data.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -17,8 +20,11 @@ const notebookStore = createNotebookStore();
 let activeFilter = 'all';
 let editId = null;
 let session = null;
+let reviewDirection = 'meaning';
+let retryTimer;
 let toastTimer;
 let undoDelete = null;
+let passageTools;
 
 function notify(message, error = false) {
   clearTimeout(toastTimer);
@@ -40,7 +46,7 @@ async function commit(next) {
     render();
     return true;
   } catch (error) { notify(`Could not save: ${error.message}`, true); return false; }
-  finally { commitPending = false; buttons.forEach(button => { if (button.isConnected) button.disabled = false; }); }
+  finally { commitPending = false; buttons.forEach(button => { if (button.isConnected) button.disabled = false; }); passageTools?.refresh(); }
 }
 
 async function loadDatabase() {
@@ -58,7 +64,7 @@ async function loadDatabase() {
 }
 
 function setView(view) {
-  if (!['today', 'library', 'writing', 'backup', 'settings'].includes(view)) view = 'today';
+  if (!['today', 'library', 'writing', 'passage', 'backup', 'settings'].includes(view)) view = 'today';
   for (const section of $$('.view')) section.hidden = section.id !== `${view}-view`;
   for (const button of $$('[data-view]')) {
     button.classList.toggle('active', button.dataset.view === view);
@@ -67,20 +73,21 @@ function setView(view) {
   }
   history.replaceState(null, '', `#${view}`);
   if (view === 'library') renderLibrary();
-  $('#workspace-title').textContent = view === 'settings' ? 'AI settings' : view === 'writing' ? 'IELTS writing' : 'IELTS vocabulary';
+  $('#workspace-title').textContent = view === 'settings' ? 'AI settings' : view === 'writing' ? 'IELTS writing' : view === 'passage' ? 'From a passage' : 'IELTS vocabulary';
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
 function focusAdd() { setView('today'); $('#word').focus(); $('#word').scrollIntoView({ block: 'center', behavior: 'smooth' }); }
-function dueWords() { return notebook.words.filter(word => word.dueAt <= Date.now()).sort((a, b) => a.dueAt - b.dueAt); }
+function dueWords(direction = reviewDirection) { return notebook.words.filter(word => reviewProgress(word, direction).dueAt <= Date.now()).sort((a, b) => reviewProgress(a, direction).dueAt - reviewProgress(b, direction).dueAt); }
 function getWord(id) { return notebook.words.find(word => word.id === id); }
-function badge(word) { return word.repetitions === 0 ? '<span class="badge due">New</span>' : word.dueAt <= Date.now() ? '<span class="badge due">Due now</span>' : '<span class="badge">Learning</span>'; }
-function nextReviewLabel(word) {
-  if (word.dueAt <= Date.now()) return 'Ready to review';
-  const remaining = word.dueAt - Date.now();
+function badge(word) { const progress = reviewProgress(word, reviewDirection); return progress.lastReviewedAt === null ? '<span class="badge due">New</span>' : progress.dueAt <= Date.now() ? '<span class="badge due">Due now</span>' : '<span class="badge">Learning</span>'; }
+function nextReviewLabel(word, direction = reviewDirection) {
+  const progress = reviewProgress(word, direction);
+  if (progress.dueAt <= Date.now()) return 'Ready to review';
+  const remaining = progress.dueAt - Date.now();
   if (remaining < 3_600_000) return `In ${Math.max(1, Math.ceil(remaining / 60_000))} min`;
   if (remaining < DAY) return `In ${Math.ceil(remaining / 3_600_000)} hours`;
-  return `Review ${new Date(word.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+  return `Review ${new Date(progress.dueAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 }
 
 function emptyState(search = false) {
@@ -96,28 +103,37 @@ function render() {
   $('#reviews-stat').textContent = reviewed;
   $('#streak-stat').innerHTML = `${practiceStreak(notebook.reviews)} <small>days</small>`;
   $('#due-number').textContent = due;
+  for (const button of $$('[data-review-direction]')) {
+    const direction = button.dataset.reviewDirection;
+    button.setAttribute('aria-pressed', String(direction === reviewDirection));
+    const practiced = notebook.words.filter(word => reviewProgress(word, direction).lastReviewedAt !== null).length;
+    button.querySelector('.mode-count').textContent = `${dueWords(direction).length} ready · ${practiced} practiced`;
+  }
   $('#today-date').textContent = new Date().toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
-  $('#review-title').textContent = !notebook.words.length ? 'Make it stick.' : due ? 'Make it stick.' : 'You’re all caught up.';
-  $('#review-description').textContent = !notebook.words.length ? 'Add your first word to begin your practice.' : due ? `${due} ${due === 1 ? 'word is' : 'words are'} ready. Take a few minutes for your future self.` : `Your next review is ${nextDueDescription()}. Add a new word while you’re here.`;
-  $('#start-review').textContent = due ? `Start review · ${due} ${due === 1 ? 'word' : 'words'}` : !notebook.words.length ? 'Add your first word' : 'Catch a new word';
+  $('#review-title').textContent = !notebook.words.length ? 'One word. A fresh start.' : due ? reviewDirection === 'word' ? 'Find the words you need.' : 'Make it stick.' : 'A little practice, done.';
+  $('#review-description').textContent = !notebook.words.length ? 'Start with a word you want to use. A small session is enough to begin.' : due ? reviewDirection === 'word' ? 'See a meaning, then try the English word. No pressure to be perfect.' : `${due} ${due === 1 ? 'word is' : 'words are'} ready. Recall the meaning before you take a peek.` : `Next in this mode: ${nextDueDescription()}. Try the other mode or catch a new word.`;
+  $('#start-review').textContent = due ? `${reviewDirection === 'word' ? 'Try word recall' : 'Start a small session'} · ${due}` : !notebook.words.length ? 'Add your first word' : 'Catch a new word';
   $('#recent-count').textContent = notebook.words.length;
   const recent = [...notebook.words].sort((a, b) => b.createdAt - a.createdAt).slice(0, 4);
   $('#recent-words').innerHTML = recent.length ? recent.map(word => `<button class="word-row" data-action="detail" data-id="${escape(word.id)}"><span class="word-initial">${escape(word.word[0].toUpperCase())}</span><div class="word-info"><div class="word-title"><strong>${escape(word.word)}</strong>${word.pronunciation ? `<span class="ipa">${escape(word.pronunciation)}</span>` : ''}</div><p class="word-summary">${escape(word.meaning)}</p></div>${badge(word)}</button>`).join('') : emptyState();
   renderLibrary();
   updateStorageBanner();
+  passageTools?.refresh();
 }
 
 function nextDueDescription() {
   if (!notebook.words.length) return 'not scheduled yet';
-  const next = Math.min(...notebook.words.map(word => word.dueAt));
+  const next = Math.min(...notebook.words.map(word => reviewProgress(word, reviewDirection).dueAt));
   return new Date(next).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
 function renderLibrary() {
   const query = $('#search').value.trim().toLocaleLowerCase();
-  const words = notebook.words.filter(word => (!query || [word.word, word.meaning, word.pronunciation, word.synonyms, word.example, word.note].join(' ').toLocaleLowerCase().includes(query)) && (activeFilter === 'all' || activeFilter === 'due' && word.dueAt <= Date.now() || activeFilter === 'new' && word.repetitions === 0));
+  const words = notebook.words.filter(word => (!query || [word.word, word.meaning, word.pronunciation, word.synonyms, word.example, word.note].join(' ').toLocaleLowerCase().includes(query)) && (activeFilter === 'all' || activeFilter === 'due' && reviewProgress(word, reviewDirection).dueAt <= Date.now() || activeFilter === 'new' && reviewProgress(word, reviewDirection).lastReviewedAt === null));
   const sort = $('#sort').value;
-  words.sort(sort === 'alphabetical' ? (a, b) => a.word.localeCompare(b.word) : sort === 'due' ? (a, b) => a.dueAt - b.dueAt : (a, b) => b.createdAt - a.createdAt);
+  words.sort(sort === 'alphabetical' ? (a, b) => a.word.localeCompare(b.word) : sort === 'due' ? (a, b) => reviewProgress(a, reviewDirection).dueAt - reviewProgress(b, reviewDirection).dueAt : (a, b) => b.createdAt - a.createdAt);
+  if (!$('#library-mode-note')) $('#library-count').insertAdjacentHTML('afterend', '<p id="library-mode-note" class="library-mode-note"></p>');
+  $('#library-mode-note').textContent = `Showing ${reviewDirection === 'word' ? 'Use it' : 'Understand'} progress. Choose your mode in Daily practice; word details show both.`;
   $('#library-count').textContent = `${words.length} ${words.length === 1 ? 'word' : 'words'}${query || activeFilter !== 'all' ? ` of ${notebook.words.length}` : ' in your notebook'}`;
   $('#library-words').innerHTML = words.length ? words.map(word => `<button class="library-card" data-action="detail" data-id="${escape(word.id)}">${badge(word)}<div class="word-title"><strong>${escape(word.word)}</strong></div>${word.pronunciation ? `<p class="ipa">${escape(word.pronunciation)}</p>` : ''}<p class="definition">${escape(word.meaning)}</p><div class="card-footer"><span>${escape(nextReviewLabel(word))}</span>${icon('book')}</div></button>`).join('') : emptyState(Boolean(query || activeFilter !== 'all'));
 }
@@ -140,6 +156,14 @@ async function addWord(fields) {
   return word;
 }
 
+async function savePassageCards(fields) {
+  if (storageBlocked || commitPending || loadPending) throw new Error('Wait for the database to load or finish saving before adding these cards.');
+  const batch = newPassageCards(fields, notebook.words);
+  const words = batch.fields.map(fields => createWord(fields));
+  if (words.length && !await commit({ ...notebook, words: [...notebook.words, ...words] })) throw new Error('Your cards were not saved. Keep this tab open and try again after checking the database message.');
+  return { added: words.length, skipped: batch.skipped };
+}
+
 async function handleAdd(event) {
   event.preventDefault(); $('#add-error').hidden = true;
   try {
@@ -157,7 +181,11 @@ function details(word) {
 
 function showDetail(id) {
   const word = getWord(id); if (!word) return;
-  $('#word-detail').innerHTML = `<div class="dialog-heading">${badge(word)}<button class="icon-button" data-close="word-dialog" aria-label="Close word details">${icon('close')}</button></div><div class="detail-title"><h2>${escape(word.word)}</h2><button class="icon-button" data-action="speak" data-id="${escape(word.id)}" aria-label="Listen to ${escape(word.word)}">${icon('audio')}</button></div>${word.pronunciation ? `<p class="detail-ipa">${escape(word.pronunciation)}</p>` : ''}${details(word)}<p class="detail-meta">${escape(nextReviewLabel(word))} · ${word.repetitions} successful ${word.repetitions === 1 ? 'review' : 'reviews'} since last reset</p><div class="detail-actions"><button class="button secondary" data-action="edit" data-id="${escape(word.id)}">${icon('edit')}Edit word</button><button class="button danger" data-action="delete" data-id="${escape(word.id)}">${icon('trash')}Delete</button></div>`;
+  const progress = `<div class="direction-progress">${['meaning', 'word'].map(direction => {
+    const count = reviewProgress(word, direction).repetitions;
+    return `<div><strong>${direction === 'word' ? 'Use it' : 'Understand'}</strong><span>${escape(nextReviewLabel(word, direction))}</span><small>${count} successful ${count === 1 ? 'review' : 'reviews'} since last retry</small></div>`;
+  }).join('')}</div>`;
+  $('#word-detail').innerHTML = `<div class="dialog-heading">${badge(word)}<button class="icon-button" data-close="word-dialog" aria-label="Close word details">${icon('close')}</button></div><div class="detail-title"><h2>${escape(word.word)}</h2><button class="icon-button" data-action="speak" data-id="${escape(word.id)}" aria-label="Listen to ${escape(word.word)}">${icon('audio')}</button></div>${word.pronunciation ? `<p class="detail-ipa">${escape(word.pronunciation)}</p>` : ''}${details(word)}${progress}<div class="detail-actions"><button class="button secondary" data-action="edit" data-id="${escape(word.id)}">${icon('edit')}Edit word</button><button class="button danger" data-action="delete" data-id="${escape(word.id)}">${icon('trash')}Delete</button></div>`;
   $('#word-dialog').showModal();
 }
 
@@ -219,39 +247,75 @@ function requestDelete(id) {
 
 function startReview() {
   if (storageBlocked) { notify('Restore your notebook before starting a review.', true); return; }
-  const queue = dueWords().map(word => word.id); if (!queue.length) { focusAdd(); return; }
-  session = { queue, total: queue.length, completed: 0, revealed: false }; renderReview(); $('#review-dialog').showModal(); $('[data-action="reveal"]').focus();
+  if (session || commitPending) return;
+  session = createReviewSession(notebook.words, reviewDirection);
+  if (!session.queue.length) { session = null; focusAdd(); return; }
+  renderReview(); $('#review-dialog').showModal(); focusReview();
 }
 
 function renderReview() {
+  clearTimeout(retryTimer);
   if (!session) return;
-  const word = getWord(session.queue[0]);
-  if (!word && session.queue.length) { session.queue.shift(); session.total--; renderReview(); return; }
+  session.queue = session.queue.filter(card => getWord(card.id));
   if (!session.queue.length) {
-    $('#review-content').innerHTML = `<div class="session-complete"><div class="success-circle">${icon('check')}</div><h2>A little more remembered.</h2><p>You worked through ${session.completed} ${session.completed === 1 ? 'word' : 'words'}. Your next reviews are scheduled. Come back for another small session.</p><button class="button primary" data-action="finish-review">Back to my notebook</button></div>`;
+    $('#review-content').innerHTML = `<div class="session-complete"><div class="success-circle">${icon('check')}</div><span class="practice-tag">${session.direction === 'word' ? 'USE IT' : 'UNDERSTAND'}</span><h2>A little more remembered.</h2><p>You practiced ${session.completed} ${session.completed === 1 ? 'word' : 'words'} ${session.direction === 'word' ? 'from meaning to English' : 'from English to meaning'}. Your next reviews are saved. Small sessions add up.</p><button class="button primary" data-action="finish-review">Back to my notebook</button></div>`;
     if ($('#review-dialog').open) $('[data-action="finish-review"]').focus();
     return;
   }
+  const card = readyCard(session);
+  if (!card) {
+    $('#review-content').innerHTML = `${reviewHeader()}<div class="session-complete retry-wait"><div class="pause-circle">${icon('sun')}</div><span class="practice-tag">A MOMENT TO LET IT SETTLE</span><h2>A breather helps.</h2><p>Your ${session.queue.length === 1 ? 'word will' : 'words will'} return after a short gap, not right away. Take a breath or think of a sentence from your own life.</p><div class="retry-countdown"><strong id="retry-countdown"></strong><span>until your next retry</span></div><p class="retry-saved">Your progress is saved. You can leave and return later.</p><button class="button secondary" data-action="finish-review">Finish for now</button></div>`;
+    tickRetry();
+    if ($('#review-dialog').open) $('[data-action="finish-review"]').focus();
+    return;
+  }
+  session.currentId = card.id;
+  const word = getWord(card.id);
+  const productive = session.direction === 'word';
   const percentage = session.total ? session.completed / session.total * 100 : 0;
-  $('#review-content').innerHTML = `<div class="review-header"><h2>Daily practice</h2><button class="icon-button" data-action="exit-review" aria-label="End review session">${icon('close')}</button></div><div class="review-progress" role="progressbar" aria-label="Words completed" aria-valuemin="0" aria-valuemax="${session.total}" aria-valuenow="${session.completed}"><div style="width:${percentage}%"></div></div><div class="review-body"><div class="review-counter">${session.completed} OF ${session.total} WORDS COMPLETED</div><h2 class="review-word">${escape(word.word)}</h2>${session.revealed ? `<div class="review-audio">${word.pronunciation ? `<span>${escape(word.pronunciation)}</span>` : ''}<button class="icon-button" data-action="speak" data-id="${escape(word.id)}" aria-label="Listen to pronunciation">${icon('audio')}</button></div><div class="review-answer">${details(word)}</div>` : '<p class="review-prompt">What does it mean? Recall it before you reveal it.</p>'}</div><div class="review-bottom">${session.revealed ? `<p>How well did you remember it?</p><div class="ratings">${['again', 'hard', 'good', 'easy'].map(rating => `<button class="rating ${rating}" data-action="rate" data-rating="${rating}"><strong>${rating[0].toUpperCase() + rating.slice(1)}</strong><span>${rating === 'again' ? 'Repeat this session' : intervalLabel(nextInterval(word, rating))}</span></button>`).join('')}</div><div class="review-shortcuts"><kbd>1</kbd> Again &nbsp; <kbd>2</kbd> Hard &nbsp; <kbd>3</kbd> Good &nbsp; <kbd>4</kbd> Easy</div>` : '<button class="button primary reveal-button" data-action="reveal">Reveal meaning</button><div class="review-shortcuts">Press <kbd>Space</kbd> to reveal</div>'}</div>`;
-  if ($('#review-dialog').open) $(session.revealed ? '[data-rating="good"]' : '[data-action="reveal"]').focus();
+  const question = productive
+    ? `<span class="practice-tag">MEANING → ENGLISH WORD</span><p class="recall-meaning">${escape(word.meaning)}</p>`
+    : `<span class="practice-tag">ENGLISH WORD → MEANING</span><h2 class="review-word">${escape(word.word)}</h2>`;
+  const answer = session.revealed ? `${productive ? `<div class="recall-feedback ${!session.forgot && answerMatches(session.answer, word.word) ? 'match' : ''}" role="status">${session.forgot ? 'Not remembered yet. That is a useful place to start.' : answerMatches(session.answer, word.word) ? 'You found your saved word. Nice recall!' : `Your attempt: <strong>${escape(session.answer)}</strong>. A synonym may fit too; you choose the rating.`}</div><h2 class="review-word">${escape(word.word)}</h2>` : ''}<div class="review-audio">${word.pronunciation ? `<span>${escape(word.pronunciation)}</span>` : ''}<button class="icon-button" data-action="speak" data-id="${escape(word.id)}" aria-label="Listen to pronunciation">${icon('audio')}</button></div><div class="review-answer">${details(word)}</div>` : productive
+    ? '<form id="recall-form" class="recall-form"><label for="recall-answer">Which English word or phrase fits?</label><input id="recall-answer" name="answer" type="text" required maxlength="120" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Give it a try…" aria-describedby="recall-help"><p id="recall-help">An attempt is enough. Compare first, then rate your own recall.</p><button type="submit" class="button primary">Compare my answer</button><button type="button" class="text-button" data-action="forgot">I don’t remember yet</button></form>'
+    : '<p class="review-prompt">What does it mean? Say it to yourself before you take a peek.</p>';
+  $('#review-content').innerHTML = `${reviewHeader()}<div class="review-progress" role="progressbar" aria-label="Words completed" aria-valuemin="0" aria-valuemax="${session.total}" aria-valuenow="${session.completed}"><div style="width:${percentage}%"></div></div><div class="review-body"><div class="review-counter">${session.completed} OF ${session.total} WORDS COMPLETED</div>${question}${answer}</div><div class="review-bottom">${session.revealed ? `<p>${productive ? 'Rate your recall, not just a spelling match.' : 'How well did you remember it?'}</p><div class="ratings">${['again', 'hard', 'good', 'easy'].map(rating => `<button class="rating ${rating}" data-action="rate" data-rating="${rating}"><strong>${rating[0].toUpperCase() + rating.slice(1)}</strong><span>${intervalLabel(nextInterval(reviewProgress(word, session.direction), rating))}</span></button>`).join('')}</div><div class="review-shortcuts"><kbd>1</kbd> Again &nbsp; <kbd>2</kbd> Hard &nbsp; <kbd>3</kbd> Good &nbsp; <kbd>4</kbd> Easy</div>` : productive ? '' : '<button class="button primary reveal-button" data-action="reveal">Reveal meaning</button><div class="review-shortcuts">Press <kbd>Space</kbd> to reveal</div>'}</div>`;
+  if ($('#review-dialog').open) focusReview();
 }
 
+function reviewHeader() { return `<div class="review-header"><h2>${session.direction === 'word' ? 'Use it' : 'Understand'} <span>Daily practice</span></h2><button class="icon-button" data-action="exit-review" aria-label="End review session">${icon('close')}</button></div>`; }
+function focusReview() { $(session.revealed ? `[data-rating="${session.forgot ? 'again' : 'good'}"]` : session.direction === 'word' ? '#recall-answer' : '[data-action="reveal"]')?.focus(); }
+function tickRetry() {
+  if (!session || !$('#retry-countdown')) return;
+  const remaining = Math.ceil(retryDelay(session) / 1000);
+  if (remaining === 0 && !$('#confirm-dialog').open) { renderReview(); return; }
+  $('#retry-countdown').textContent = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
+  retryTimer = setTimeout(tickRetry, 1000);
+}
 function intervalLabel(interval) { return interval < 1 ? '1 minute' : interval === 1 ? '1 day' : `${interval} days`; }
-function reveal() { if (!session || !session.queue.length) return; session.revealed = true; renderReview(); }
+function reveal(forgot = false) {
+  if (!session || !session.currentId || session.revealed || commitPending) return;
+  if (session.direction === 'word' && !forgot) {
+    const input = $('#recall-answer');
+    if (!input?.value.trim()) { input?.setCustomValidity('Try a word, or choose “I don’t remember yet”.'); input?.reportValidity(); input?.focus(); return; }
+    session.answer = input.value.trim();
+  }
+  session.forgot = forgot;
+  session.revealed = true; renderReview();
+}
 async function rate(rating) {
-  if (!session?.revealed || !session.queue.length) return;
+  if (!session?.revealed || !session.currentId || commitPending || $('#confirm-dialog').open) return;
   const reviewedSession = session;
-  const id = session.queue[0]; const word = getWord(id); if (!word) return;
-  const now = Date.now(); const scheduled = scheduleWord(word, rating, now);
-  const next = { ...notebook, words: notebook.words.map(item => item.id === id ? scheduled : item), reviews: [...notebook.reviews, { id: crypto.randomUUID(), wordId: id, rating, at: now }] };
+  const id = session.currentId; const word = getWord(id); if (!word) return;
+  const now = Date.now(); const scheduled = scheduleWord(word, rating, now, session.direction);
+  const next = { ...notebook, words: notebook.words.map(item => item.id === id ? scheduled : item), reviews: [...notebook.reviews, { id: crypto.randomUUID(), wordId: id, rating, at: now, direction: session.direction }] };
   if (!await commit(next)) return;
   if (session !== reviewedSession) return;
-  session.queue.shift(); if (rating === 'again') session.queue.push(id); else session.completed++;
-  session.revealed = false; renderReview();
+  completeCard(session, id, rating, reviewProgress(scheduled, session.direction).dueAt);
+  renderReview();
 }
 
-function finishReview() { $('#review-dialog').close(); session = null; render(); }
+function finishReview() { clearTimeout(retryTimer); $('#review-dialog').close(); session = null; render(); }
 function exitReview() {
   if (!session?.queue.length) { finishReview(); return; }
   confirmAction('Finish for now?', 'Your completed reviews are saved. Unfinished words stay in your review queue.', [{ label: 'Finish for now', run: finishReview }]);
@@ -341,6 +405,11 @@ const editAutofill = wireAutofill({
 $('#edit-dialog').addEventListener('close', () => editAutofill.reset());
 $('#add-form').addEventListener('submit', handleAdd); $('#edit-form').addEventListener('submit', handleEdit);
 $('#start-review').addEventListener('click', () => dueWords().length ? startReview() : focusAdd());
+$$('[data-review-direction]').forEach(button => button.addEventListener('click', () => {
+  reviewDirection = button.dataset.reviewDirection; render();
+}));
+$('#review-content').addEventListener('submit', event => { if (event.target.id === 'recall-form') { event.preventDefault(); reveal(); } });
+$('#review-content').addEventListener('input', event => { if (event.target.id === 'recall-answer') event.target.setCustomValidity(''); });
 $('#see-library').addEventListener('click', () => setView('library')); $('#library-add').addEventListener('click', focusAdd);
 $('#search').addEventListener('input', renderLibrary); $('#sort').addEventListener('change', renderLibrary);
 $('#export-backup').addEventListener('click', exportBackup); $('#import-backup').addEventListener('click', () => $('#import-file').click());
@@ -363,6 +432,7 @@ document.addEventListener('click', event => {
     case 'delete': requestDelete(action.dataset.id); break;
     case 'samples': addSamples(); break;
     case 'reveal': reveal(); break;
+    case 'forgot': reveal(true); break;
     case 'rate': rate(action.dataset.rating); break;
     case 'exit-review': exitReview(); break;
     case 'finish-review': finishReview(); break;
@@ -375,18 +445,20 @@ document.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && editing) {
     const form = event.target.closest('form'); if (form) { event.preventDefault(); form.requestSubmit(); } return;
   }
-  if (editing || $('#confirm-dialog').open || !$('#review-dialog').open || !session?.queue.length) return;
-  if (event.code === 'Space' && !session.revealed && event.target.dataset.action !== 'exit-review') { event.preventDefault(); reveal(); }
+  if (editing || $('#confirm-dialog').open || !$('#review-dialog').open || !session?.currentId || commitPending) return;
+  if (event.code === 'Space' && session.direction === 'meaning' && !session.revealed && event.target.dataset.action !== 'exit-review') { event.preventDefault(); reveal(); }
   else if (session.revealed && /^[1-4]$/.test(event.key)) { event.preventDefault(); rate(['again', 'hard', 'good', 'easy'][Number(event.key) - 1]); }
 });
 
 $('#review-dialog').addEventListener('cancel', event => { event.preventDefault(); exitReview(); });
-$('#review-dialog').addEventListener('close', () => { if ('speechSynthesis' in window) speechSynthesis.cancel(); });
+$('#review-dialog').addEventListener('close', () => { clearTimeout(retryTimer); if ('speechSynthesis' in window) speechSynthesis.cancel(); });
 $('#word-dialog').addEventListener('close', () => { if ('speechSynthesis' in window) speechSynthesis.cancel(); });
 window.addEventListener('hashchange', () => setView(location.hash.slice(1)));
-document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); if ($('#retry-countdown')) { clearTimeout(retryTimer); tickRetry(); } } });
+window.addEventListener('pagehide', () => clearTimeout(retryTimer));
 setInterval(() => { if (!document.hidden && !$('#review-dialog').open) render(); }, 60_000);
 render(); setView(location.hash.slice(1) || 'today');
+passageTools = initPassage({ getNotebook: () => notebook, saveCards: savePassageCards, canSave: () => !storageBlocked && !commitPending && !loadPending, setView });
 void loadDatabase();
 const writingReady = initWriting();
 void initSettings(setView);

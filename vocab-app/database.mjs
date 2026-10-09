@@ -29,6 +29,7 @@ function clean(kind, value) {
 export function createDatabase(path = DATABASE_PATH) {
   if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
   const db = new DatabaseSync(path);
+  if (db.prepare('PRAGMA user_version').get().user_version > 2) { db.close(); throw new StorageError('This database needs a newer version of Wordwell.'); }
   db.exec(`
     PRAGMA busy_timeout = 5000;
     PRAGMA journal_mode = DELETE;
@@ -47,7 +48,6 @@ export function createDatabase(path = DATABASE_PATH) {
     CREATE TABLE IF NOT EXISTS writing_drafts (id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS browser_migrations (fingerprint TEXT PRIMARY KEY, kind TEXT NOT NULL, migratedAt INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS writing_archive (fingerprint TEXT PRIMARY KEY, payload TEXT NOT NULL, archivedAt INTEGER NOT NULL);
-    PRAGMA user_version = 1;
   `);
   const revision = kind => db.prepare('SELECT revision FROM storage_meta WHERE kind = ?').get(kind).revision;
   const transaction = run => {
@@ -55,18 +55,24 @@ export function createDatabase(path = DATABASE_PATH) {
     try { const result = run(); db.exec('COMMIT'); return result; }
     catch (error) { db.exec('ROLLBACK'); throw error; }
   };
+  // Upgrade in place without rewriting words, history, drafts, or migration records.
+  transaction(() => {
+    if (!db.prepare('PRAGMA table_info(words)').all().some(column => column.name === 'production')) db.exec('ALTER TABLE words ADD COLUMN production TEXT');
+    if (!db.prepare('PRAGMA table_info(reviews)').all().some(column => column.name === 'direction')) db.exec("ALTER TABLE reviews ADD COLUMN direction TEXT NOT NULL DEFAULT 'meaning'");
+    db.exec('PRAGMA user_version = 2');
+  });
   function read(kind) {
-    if (kind === 'notebook') return { revision: revision(kind), notebook: validateNotebook({ version: 1, words: db.prepare(`SELECT ${wordColumns.join(', ')} FROM words ORDER BY rowid`).all(), reviews: db.prepare('SELECT id, wordId, rating, at FROM reviews ORDER BY rowid').all() }) };
+    if (kind === 'notebook') return { revision: revision(kind), notebook: validateNotebook({ version: 1, words: db.prepare(`SELECT ${wordColumns.join(', ')}, production FROM words ORDER BY rowid`).all().map(({ production, ...word }) => ({ ...word, ...(production !== null ? { production: JSON.parse(production) } : {}) })), reviews: db.prepare('SELECT id, wordId, rating, at, direction FROM reviews ORDER BY rowid').all() }) };
     const row = db.prepare('SELECT payload FROM writing_drafts WHERE id = 1').get();
     return { revision: revision(kind), draft: row ? validateWritingDraft(JSON.parse(row.payload)) : null };
   }
   function write(kind, value) {
     if (kind === 'notebook') {
       db.exec('DELETE FROM words; DELETE FROM reviews;');
-      const insertWord = db.prepare(`INSERT INTO words (${wordColumns.join(', ')}) VALUES (${wordColumns.map(() => '?').join(', ')})`);
-      for (const word of value.words) insertWord.run(...wordColumns.map(key => word[key]));
-      const insertReview = db.prepare('INSERT INTO reviews (id, wordId, rating, at) VALUES (?, ?, ?, ?)');
-      for (const review of value.reviews) insertReview.run(review.id, review.wordId, review.rating, review.at);
+      const insertWord = db.prepare(`INSERT INTO words (${wordColumns.join(', ')}, production) VALUES (${[...wordColumns, 'production'].map(() => '?').join(', ')})`);
+      for (const word of value.words) insertWord.run(...wordColumns.map(key => word[key]), JSON.stringify(word.production));
+      const insertReview = db.prepare('INSERT INTO reviews (id, wordId, rating, at, direction) VALUES (?, ?, ?, ?, ?)');
+      for (const review of value.reviews) insertReview.run(review.id, review.wordId, review.rating, review.at, review.direction);
     } else db.prepare('INSERT INTO writing_drafts (id, payload) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload').run(JSON.stringify(value));
     db.prepare('UPDATE storage_meta SET revision = revision + 1 WHERE kind = ?').run(kind);
   }
@@ -75,6 +81,7 @@ export function createDatabase(path = DATABASE_PATH) {
     read,
     save(kind, payload) {
       if (!payload || !Number.isSafeInteger(payload.revision) || payload.revision < 0) throw new StorageError('Refresh Wordwell before saving.');
+      if (kind === 'notebook' && payload.value?.version === 1) throw new StorageError('Wordwell has been upgraded. Refresh before saving to preserve both review directions.', 409);
       const value = clean(kind, payload.value);
       return transaction(() => {
         if (payload.revision !== revision(kind)) throw new StorageError('The database changed in another tab. Refresh to load the latest data before saving; your edit has not replaced it.', 409);
@@ -85,7 +92,12 @@ export function createDatabase(path = DATABASE_PATH) {
     migrate(payload) {
       if (!payload || !['notebook', 'writing'].includes(payload.kind)) throw new StorageError('Choose a valid browser migration.');
       const value = clean(payload.kind, payload.value);
-      const fingerprint = createHash('sha256').update(payload.kind + JSON.stringify(value)).digest('hex');
+      // Match fingerprints recorded before the v2 upgrade. Retained browser data
+      // must not be imported twice and resurrect vocabulary the user deleted.
+      const fingerprintValue = payload.kind === 'notebook' && payload.value.version === 1
+        ? { version: 1, words: value.words.map(({ production, ...word }) => word), reviews: value.reviews.map(({ direction, ...review }) => review) }
+        : value;
+      const fingerprint = createHash('sha256').update(payload.kind + JSON.stringify(fingerprintValue)).digest('hex');
       return transaction(() => {
         if (db.prepare('SELECT fingerprint FROM browser_migrations WHERE fingerprint = ?').get(fingerprint)) return { ...read(payload.kind), migrated: false };
         const current = read(payload.kind);

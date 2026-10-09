@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DAY, STORAGE_KEY, createWord, cleanFields, scheduleWord, nextInterval, localDate, practiceStreak, emptyNotebook, validateNotebook, mergeNotebooks, loadNotebook, saveNotebook } from '../dist/notebook.js';
+import { DAY, STORAGE_KEY, createWord, cleanFields, scheduleWord, nextInterval, reviewProgress, localDate, practiceStreak, emptyNotebook, validateNotebook, mergeNotebooks, loadNotebook, saveNotebook } from '../dist/notebook.js';
 
 const now = new Date(2026, 9, 7, 12).getTime();
 const makeWord = (word = 'compelling') => createWord({ word, meaning: 'Interesting or convincing', example: 'A compelling argument.' }, now);
-const review = (word, at, rating = 'good') => ({ id: crypto.randomUUID(), wordId: word.id, at, rating });
+const review = (word, at, rating = 'good') => ({ id: crypto.randomUUID(), wordId: word.id, at, rating, direction: 'meaning' });
 
 test('new words are trimmed and immediately due; empty meanings are rejected', () => {
   const word = createWord({ word: ' compelling ', meaning: ' convincing ' }, now);
@@ -60,7 +60,7 @@ test('storage round trip retains words, notes, and scheduled review history', ()
   const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) };
   assert.deepEqual(loadNotebook(storage), emptyNotebook());
   const word = scheduleWord(makeWord(), 'good', now);
-  const notebook = { version: 1, words: [word], reviews: [review(word, now)] };
+  const notebook = { version: 2, words: [word], reviews: [review(word, now)] };
   saveNotebook(storage, notebook);
   assert.deepEqual(loadNotebook(storage), notebook);
   data.set(STORAGE_KEY, '{broken');
@@ -70,26 +70,30 @@ test('storage round trip retains words, notes, and scheduled review history', ()
 
 test('older notebooks load without synonyms and newer backups preserve added synonyms and schedules', () => {
   const word = scheduleWord(makeWord(), 'good', now);
-  const { synonyms, ...legacyWord } = word;
-  const legacy = { version: 1, words: [legacyWord], reviews: [review(word, now)] };
+  const { synonyms, production, ...legacyWord } = word;
+  const { direction, ...legacyReview } = review(word, now);
+  const legacy = { version: 1, words: [legacyWord], reviews: [legacyReview] };
   const data = new Map([[STORAGE_KEY, JSON.stringify(legacy)]]);
   const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, value) };
   const loaded = loadNotebook(storage);
   assert.equal(loaded.words[0].synonyms, '');
   assert.equal(loaded.words[0].dueAt, word.dueAt);
   assert.equal(loaded.words[0].repetitions, word.repetitions);
+  assert.equal(loaded.version, 2);
+  assert.equal(loaded.words[0].production.dueAt, word.createdAt);
+  assert.equal(loaded.words[0].production.lastReviewedAt, null);
   assert.equal(JSON.parse(data.get(STORAGE_KEY)).words[0].synonyms, undefined);
   loaded.words[0].synonyms = 'convincing, persuasive';
   saveNotebook(storage, loaded);
   const restored = validateNotebook(JSON.parse(data.get(STORAGE_KEY)));
   assert.equal(restored.words[0].synonyms, 'convincing, persuasive');
   assert.equal(restored.words[0].dueAt, word.dueAt);
-  assert.deepEqual(restored.reviews, legacy.reviews);
+  assert.deepEqual(restored.reviews, legacy.reviews.map(review => ({ ...review, direction: 'meaning' })));
 });
 
 test('invalid backups are rejected, including bad schedules, duplicate names, and duplicate IDs', () => {
   const word = makeWord();
-  assert.throws(() => validateNotebook({ version: 2, words: [], reviews: [] }));
+  assert.throws(() => validateNotebook({ version: 3, words: [], reviews: [] }));
   assert.throws(() => validateNotebook({ version: 1, words: [{ ...word, dueAt: -1 }], reviews: [] }));
   assert.throws(() => validateNotebook({ version: 1, words: [{ ...word, dueAt: Number.MAX_SAFE_INTEGER }], reviews: [] }));
   assert.throws(() => validateNotebook({ version: 1, words: [word, { ...word }], reviews: [] }));
