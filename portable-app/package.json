@@ -1,0 +1,40 @@
+{
+  "name": "wordwell-portable",
+  "productName": "Wordwell",
+  "version": "2.3.1",
+  "description": "Portable Wordwell vocabulary and IELTS practice app",
+  "author": "Wordwell contributors",
+  "license": "GPL-3.0-only",
+  "private": true,
+  "main": "src/main.cjs",
+  "scripts": {
+    "start": "node scripts/icon.cjs && electron .",
+    "build": "node scripts/icon.cjs && electron-builder --win portable --x64",
+    "test:smoke": "node scripts/smoke.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "overrides": { "global-agent": "4.1.3" },
+  "build": {
+    "appId": "com.wordwell.portable",
+    "productName": "Wordwell",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": { "output": "release", "buildResources": "build" },
+    "files": ["src/**/*.cjs", "package.json"],
+    "extraResources": [
+      { "from": "../vocab-app", "to": "vocab-app", "filter": ["*.mjs", "dist/*.html", "dist/*.css", "dist/*.js"] },
+      { "from": "../package.json", "to": "package.json" },
+      { "from": "../LICENSE", "to": "LICENSE" },
+      { "from": "build/wordwell.ico", "to": "wordwell.ico" }
+    ],
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "icon": "build/wordwell.ico",
+      "signAndEditExecutable": true
+    },
+    "portable": { "artifactName": "Wordwell-${version}-portable-${arch}.${ext}", "requestExecutionLevel": "user" }
+  }
+}

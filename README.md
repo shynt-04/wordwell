@@ -2,6 +2,8 @@
 
 A local IELTS practice app for building vocabulary with spaced repetition and getting AI feedback on Academic Writing Tasks 1 and 2.
 
+[Download the portable Windows app](https://github.com/shynt-04/wordwell/releases/latest) (x64, no installer or separate Node.js required).
+
 ## Features
 
 - **Vocabulary notebook:** Save words, meanings, British IPA, synonyms, examples, and notes. Search, edit, and hear pronunciation.
@@ -24,6 +26,10 @@ npm start
 Open [http://127.0.0.1:4173](http://127.0.0.1:4173). Keep the terminal running while using the app; press `Ctrl+C` to stop it.
 
 On Windows, you can also double-click `start-wordwell.cmd`.
+
+### Portable Windows application
+
+Download the `.exe` from [GitHub Releases](https://github.com/shynt-04/wordwell/releases/latest) and double-click it from a writable folder. It keeps a separate `data/` folder beside the executable. Share only the `.exe`, not personal data or API keys. See the [portable app guide](portable-app/README.md) for details and build instructions.
 
 ## AI setup
 
@@ -63,6 +69,9 @@ Cloud AI requests send the word being looked up, or the Writing question, essay,
 | `npm start` | Run the local server |
 | `npm run dev` | Run with automatic server restarts on source changes |
 | `npm test` | Run the test suite |
+| `npm run app:dev` | Run the desktop app after `npm --prefix portable-app ci` |
+| `npm run app:build` | Build the portable Windows x64 executable |
+| `npm run app:test` | Smoke-test the built desktop app with temporary data |
 
 Refresh the browser after editing frontend files. To change the default port, copy `.env.example` to `.env`, set `PORT`, and restart the server. Configure AI through Settings.
 

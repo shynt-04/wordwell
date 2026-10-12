@@ -3,3 +3,5 @@ node_modules/
 .sites-runtime/
 *.log
 data/
+portable-app/release/
+portable-app/build/

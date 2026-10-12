@@ -6,7 +6,10 @@
   "scripts": {
     "dev": "node --watch vocab-app/server.mjs",
     "start": "node vocab-app/server.mjs",
-    "test": "node --test vocab-app/tests/*.test.mjs"
+    "test": "node --test vocab-app/tests/*.test.mjs portable-app/tests/*.test.cjs",
+    "app:dev": "npm --prefix portable-app start",
+    "app:build": "npm --prefix portable-app run build",
+    "app:test": "npm --prefix portable-app run test:smoke"
   },
   "engines": { "node": ">=24" }
 }

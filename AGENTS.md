@@ -2,11 +2,11 @@
 
 ## Project Structure & Module Organization
 
-This directory currently contains no application source, tests, assets, or build configuration. As the project takes shape, keep production code in a clearly named source directory (for example, `src/`), tests in `tests/` or alongside the modules they cover, and static resources in `assets/`. Keep related functionality together and avoid committing generated output or dependency caches.
+The website's server and AI modules live in `vocab-app/`; `vocab-app/dist/` contains editable frontend source, not generated output. Website tests live in `vocab-app/tests/`. The standalone Windows wrapper lives in `portable-app/src/`, with packaging scripts and tests in sibling directories. Reuse the website source rather than copying it into the wrapper. Never commit `portable-app/release/`, `portable-app/build/`, dependency caches, or personal `data/` folders.
 
 ## Build, Test, and Development Commands
 
-No build, test, or run commands are configured yet. When adding a toolchain, document its setup and standard commands here and in the project README. Prefer commands that work from the repository root, such as `npm test` or `python -m pytest`, once the corresponding configuration exists.
+Use Node.js 24+. From the root: `npm start` runs the website, `npm run dev` watches its server, and `npm test` runs website and desktop unit tests. Install desktop dependencies with `npm --prefix portable-app ci`; `npm run app:dev` opens the desktop app, `npm run app:build` builds Windows x64 portable output, and `npm run app:test` tests the unpacked build with isolated temporary data. No root dependency installation is required for website tests.
 
 ## Coding Style & Naming Conventions
 
@@ -14,7 +14,7 @@ No language-specific style or formatter is established yet. Follow the conventio
 
 ## Testing Guidelines
 
-There is no test framework or coverage target configured. Add tests with new behavior and bug fixes, use names that describe the behavior under test, and document the command contributors should run. Keep tests deterministic and independent of local machine state.
+Tests use Node's built-in test runner. Add tests with new behavior and bug fixes, use names that describe the behavior under test, and document the command contributors should run. Keep tests deterministic, use isolated databases/settings, and never send paid AI requests in automated checks. Verify the packaged desktop runtime as well as unit tests when changing packaging or startup behavior.
 
 ## Commit & Pull Request Guidelines
 
