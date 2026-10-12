@@ -1,5 +1,7 @@
 # Wordwell
 
+[English](README.md) | [Tiếng Việt](README_vi.md)
+
 A local IELTS practice app for building vocabulary with spaced repetition and getting AI feedback on Academic Writing Tasks 1 and 2.
 
 [Download the portable Windows app](https://github.com/shynt-04/wordwell/releases/latest) (x64, no installer or separate Node.js required).
