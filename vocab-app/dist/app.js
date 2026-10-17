@@ -1,4 +1,4 @@
-import { DAY, STORAGE_KEY, cleanFields, createWord, normalizedWord, nextInterval, scheduleWord, reviewProgress, localDate, practiceStreak, emptyNotebook, validateNotebook, mergeNotebooks } from './notebook.js';
+import { DAY, STORAGE_KEY, THEME_KEY, resolveTheme, masteryLevel, cleanFields, createWord, normalizedWord, nextInterval, scheduleWord, reviewProgress, localDate, practiceStreak, emptyNotebook, validateNotebook, mergeNotebooks } from './notebook.js';
 import { createReviewSession, readyCard, retryDelay, completeCard, answerMatches } from './review-session.js';
 import { wireAutofill } from './autofill.js';
 import { initWriting } from './writing.js';
@@ -6,6 +6,7 @@ import { createNotebookStore } from './persistence.js';
 import { initSettings } from './settings.js';
 import { initPassage } from './passage.js';
 import { newPassageCards } from './passage-data.js';
+import { initTelegramSettings } from './telegram-settings.js';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -25,6 +26,35 @@ let retryTimer;
 let toastTimer;
 let undoDelete = null;
 let passageTools;
+let externalNotebookChange = false;
+let revisionCheckPending = false;
+
+function currentTheme() {
+  let saved = null;
+  try { saved = localStorage.getItem(THEME_KEY); } catch { /* Storage optional */ }
+  const prefersDark = Boolean(window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  return resolveTheme(saved, prefersDark);
+}
+
+function applyTheme(theme) {
+  const dark = theme === 'dark';
+  document.documentElement.dataset.theme = theme;
+  const toggle = $('#theme-toggle');
+  if (toggle) {
+    toggle.setAttribute('aria-pressed', String(dark));
+    const label = $('#theme-toggle-label');
+    if (label) label.textContent = dark ? 'Light' : 'Dark';
+  }
+}
+
+function toggleTheme() {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  try { localStorage.setItem(THEME_KEY, next); } catch { /* Storage optional */ }
+  applyTheme(next);
+}
+
+applyTheme(currentTheme());
+$('#theme-toggle')?.addEventListener('click', toggleTheme);
 
 function notify(message, error = false) {
   clearTimeout(toastTimer);
@@ -35,6 +65,7 @@ function notify(message, error = false) {
 }
 
 async function commit(next) {
+  if (externalNotebookChange) { notify('Load notebook updates before saving. Your current form text has been kept.', true); return false; }
   if (storageBlocked) { notify('Saving is unavailable. Export a recovery copy or restore a valid backup first.', true); return false; }
   if (commitPending) { notify('A save is already running. Please try again after it finishes.'); return false; }
   commitPending = true;
@@ -58,13 +89,15 @@ async function loadDatabase() {
     notebook = await notebookStore.read();
     storageBlocked = false;
     storageError = '';
+    externalNotebookChange = false;
+    $('#external-notebook-notice').hidden = true;
     if (notebookStore.migrationWarning) notify(notebookStore.migrationWarning, true);
   } catch (error) { storageBlocked = true; storageError = error.message; }
   finally { loadPending = false; render(); }
 }
 
 function setView(view) {
-  if (!['today', 'library', 'writing', 'passage', 'backup', 'settings'].includes(view)) view = 'today';
+  if (!['today', 'library', 'writing', 'passage', 'backup', 'settings', 'telegram'].includes(view)) view = 'today';
   for (const section of $$('.view')) section.hidden = section.id !== `${view}-view`;
   for (const button of $$('[data-view]')) {
     button.classList.toggle('active', button.dataset.view === view);
@@ -73,7 +106,7 @@ function setView(view) {
   }
   history.replaceState(null, '', `#${view}`);
   if (view === 'library') renderLibrary();
-  $('#workspace-title').textContent = view === 'settings' ? 'AI settings' : view === 'writing' ? 'IELTS writing' : view === 'passage' ? 'From a passage' : 'IELTS vocabulary';
+  $('#workspace-title').textContent = view === 'telegram' ? 'Telegram' : view === 'settings' ? 'AI settings' : view === 'writing' ? 'IELTS writing' : view === 'passage' ? 'From a passage' : 'IELTS vocabulary';
   window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
@@ -81,6 +114,10 @@ function focusAdd() { setView('today'); $('#word').focus(); $('#word').scrollInt
 function dueWords(direction = reviewDirection) { return notebook.words.filter(word => reviewProgress(word, direction).dueAt <= Date.now()).sort((a, b) => reviewProgress(a, direction).dueAt - reviewProgress(b, direction).dueAt); }
 function getWord(id) { return notebook.words.find(word => word.id === id); }
 function badge(word) { const progress = reviewProgress(word, reviewDirection); return progress.lastReviewedAt === null ? '<span class="badge due">New</span>' : progress.dueAt <= Date.now() ? '<span class="badge due">Due now</span>' : '<span class="badge">Learning</span>'; }
+function masteryPips(word, direction = reviewDirection) {
+  const level = masteryLevel(word, direction);
+  return `<span class="mastery-pips" aria-hidden="true">${[1, 2, 3, 4].map(step => `<i class="${step <= level ? 'filled' : ''}"></i>`).join('')}</span>`;
+}
 function nextReviewLabel(word, direction = reviewDirection) {
   const progress = reviewProgress(word, direction);
   if (progress.dueAt <= Date.now()) return 'Ready to review';
@@ -108,6 +145,8 @@ function render() {
     button.setAttribute('aria-pressed', String(direction === reviewDirection));
     const practiced = notebook.words.filter(word => reviewProgress(word, direction).lastReviewedAt !== null).length;
     button.querySelector('.mode-count').textContent = `${dueWords(direction).length} ready · ${practiced} practiced`;
+    const fill = button.querySelector('[data-mode-fill]');
+    if (fill) fill.style.width = `${notebook.words.length ? Math.round((practiced / notebook.words.length) * 100) : 0}%`;
   }
   $('#today-date').textContent = new Date().toLocaleDateString('en', { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
   $('#review-title').textContent = !notebook.words.length ? 'One word. A fresh start.' : due ? reviewDirection === 'word' ? 'Find the words you need.' : 'Make it stick.' : 'A little practice, done.';
@@ -115,7 +154,7 @@ function render() {
   $('#start-review').textContent = due ? `${reviewDirection === 'word' ? 'Try word recall' : 'Start a small session'} · ${due}` : !notebook.words.length ? 'Add your first word' : 'Catch a new word';
   $('#recent-count').textContent = notebook.words.length;
   const recent = [...notebook.words].sort((a, b) => b.createdAt - a.createdAt).slice(0, 4);
-  $('#recent-words').innerHTML = recent.length ? recent.map(word => `<button class="word-row" data-action="detail" data-id="${escape(word.id)}"><span class="word-initial">${escape(word.word[0].toUpperCase())}</span><div class="word-info"><div class="word-title"><strong>${escape(word.word)}</strong>${word.pronunciation ? `<span class="ipa">${escape(word.pronunciation)}</span>` : ''}</div><p class="word-summary">${escape(word.meaning)}</p></div>${badge(word)}</button>`).join('') : emptyState();
+  $('#recent-words').innerHTML = recent.length ? recent.map(word => `<button class="word-row" data-action="detail" data-id="${escape(word.id)}"><span class="word-initial">${escape(word.word[0].toUpperCase())}</span><div class="word-info"><div class="word-title"><strong>${escape(word.word)}</strong>${word.pronunciation ? `<span class="ipa">${escape(word.pronunciation)}</span>` : ''}</div><p class="word-summary">${escape(word.meaning)}</p></div><div class="word-meta">${masteryPips(word)}${badge(word)}</div></button>`).join('') : emptyState();
   renderLibrary();
   updateStorageBanner();
   passageTools?.refresh();
@@ -135,7 +174,7 @@ function renderLibrary() {
   if (!$('#library-mode-note')) $('#library-count').insertAdjacentHTML('afterend', '<p id="library-mode-note" class="library-mode-note"></p>');
   $('#library-mode-note').textContent = `Showing ${reviewDirection === 'word' ? 'Use it' : 'Understand'} progress. Choose your mode in Daily practice; word details show both.`;
   $('#library-count').textContent = `${words.length} ${words.length === 1 ? 'word' : 'words'}${query || activeFilter !== 'all' ? ` of ${notebook.words.length}` : ' in your notebook'}`;
-  $('#library-words').innerHTML = words.length ? words.map(word => `<button class="library-card" data-action="detail" data-id="${escape(word.id)}">${badge(word)}<div class="word-title"><strong>${escape(word.word)}</strong></div>${word.pronunciation ? `<p class="ipa">${escape(word.pronunciation)}</p>` : ''}<p class="definition">${escape(word.meaning)}</p><div class="card-footer"><span>${escape(nextReviewLabel(word))}</span>${icon('book')}</div></button>`).join('') : emptyState(Boolean(query || activeFilter !== 'all'));
+  $('#library-words').innerHTML = words.length ? words.map(word => `<button class="library-card" data-action="detail" data-id="${escape(word.id)}"><div class="card-top">${badge(word)}${masteryPips(word)}</div><div class="word-title"><strong>${escape(word.word)}</strong></div>${word.pronunciation ? `<p class="ipa">${escape(word.pronunciation)}</p>` : ''}<p class="definition">${escape(word.meaning)}</p><div class="card-footer"><span>${escape(nextReviewLabel(word))}</span>${icon('book')}</div></button>`).join('') : emptyState(Boolean(query || activeFilter !== 'all'));
 }
 
 function updateStorageBanner() {
@@ -183,7 +222,8 @@ function showDetail(id) {
   const word = getWord(id); if (!word) return;
   const progress = `<div class="direction-progress">${['meaning', 'word'].map(direction => {
     const count = reviewProgress(word, direction).repetitions;
-    return `<div><strong>${direction === 'word' ? 'Use it' : 'Understand'}</strong><span>${escape(nextReviewLabel(word, direction))}</span><small>${count} successful ${count === 1 ? 'review' : 'reviews'} since last retry</small></div>`;
+    const level = masteryLevel(word, direction);
+    return `<div><div class="direction-head"><strong>${direction === 'word' ? 'Use it' : 'Understand'}</strong>${masteryPips(word, direction)}</div><span>${escape(nextReviewLabel(word, direction))}</span><small>${count} successful ${count === 1 ? 'review' : 'reviews'} since last retry</small><div class="direction-bar" aria-hidden="true"><div style="width:${level * 25}%"></div></div></div>`;
   }).join('')}</div>`;
   $('#word-detail').innerHTML = `<div class="dialog-heading">${badge(word)}<button class="icon-button" data-close="word-dialog" aria-label="Close word details">${icon('close')}</button></div><div class="detail-title"><h2>${escape(word.word)}</h2><button class="icon-button" data-action="speak" data-id="${escape(word.id)}" aria-label="Listen to ${escape(word.word)}">${icon('audio')}</button></div>${word.pronunciation ? `<p class="detail-ipa">${escape(word.pronunciation)}</p>` : ''}${details(word)}${progress}<div class="detail-actions"><button class="button secondary" data-action="edit" data-id="${escape(word.id)}">${icon('edit')}Edit word</button><button class="button danger" data-action="delete" data-id="${escape(word.id)}">${icon('trash')}Delete</button></div>`;
   $('#word-dialog').showModal();
@@ -279,7 +319,7 @@ function renderReview() {
   const answer = session.revealed ? `${productive ? `<div class="recall-feedback ${!session.forgot && answerMatches(session.answer, word.word) ? 'match' : ''}" role="status">${session.forgot ? 'Not remembered yet. That is a useful place to start.' : answerMatches(session.answer, word.word) ? 'You found your saved word. Nice recall!' : `Your attempt: <strong>${escape(session.answer)}</strong>. A synonym may fit too; you choose the rating.`}</div><h2 class="review-word">${escape(word.word)}</h2>` : ''}<div class="review-audio">${word.pronunciation ? `<span>${escape(word.pronunciation)}</span>` : ''}<button class="icon-button" data-action="speak" data-id="${escape(word.id)}" aria-label="Listen to pronunciation">${icon('audio')}</button></div><div class="review-answer">${details(word)}</div>` : productive
     ? '<form id="recall-form" class="recall-form"><label for="recall-answer">Which English word or phrase fits?</label><input id="recall-answer" name="answer" type="text" required maxlength="120" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Give it a try…" aria-describedby="recall-help"><p id="recall-help">An attempt is enough. Compare first, then rate your own recall.</p><button type="submit" class="button primary">Compare my answer</button><button type="button" class="text-button" data-action="forgot">I don’t remember yet</button></form>'
     : '<p class="review-prompt">What does it mean? Say it to yourself before you take a peek.</p>';
-  $('#review-content').innerHTML = `${reviewHeader()}<div class="review-progress" role="progressbar" aria-label="Words completed" aria-valuemin="0" aria-valuemax="${session.total}" aria-valuenow="${session.completed}"><div style="width:${percentage}%"></div></div><div class="review-body"><div class="review-counter">${session.completed} OF ${session.total} WORDS COMPLETED</div>${question}${answer}</div><div class="review-bottom">${session.revealed ? `<p>${productive ? 'Rate your recall, not just a spelling match.' : 'How well did you remember it?'}</p><div class="ratings">${['again', 'hard', 'good', 'easy'].map(rating => `<button class="rating ${rating}" data-action="rate" data-rating="${rating}"><strong>${rating[0].toUpperCase() + rating.slice(1)}</strong><span>${intervalLabel(nextInterval(reviewProgress(word, session.direction), rating))}</span></button>`).join('')}</div><div class="review-shortcuts"><kbd>1</kbd> Again &nbsp; <kbd>2</kbd> Hard &nbsp; <kbd>3</kbd> Good &nbsp; <kbd>4</kbd> Easy</div>` : productive ? '' : '<button class="button primary reveal-button" data-action="reveal">Reveal meaning</button><div class="review-shortcuts">Press <kbd>Space</kbd> to reveal</div>'}</div>`;
+  $('#review-content').innerHTML = `${reviewHeader()}<div class="review-progress" role="progressbar" aria-label="Words completed" aria-valuemin="0" aria-valuemax="${session.total}" aria-valuenow="${session.completed}"><div style="width:${percentage}%"></div></div><div class="review-body"><div class="review-counter">${session.completed} OF ${session.total} WORDS COMPLETED</div><div class="flashcard-stage ${session.revealed ? 'is-revealed' : ''}">${question}${answer}</div></div><div class="review-bottom">${session.revealed ? `<p>${productive ? 'Rate your recall, not just a spelling match.' : 'How well did you remember it?'}</p><div class="ratings">${['again', 'hard', 'good', 'easy'].map(rating => `<button class="rating ${rating}" data-action="rate" data-rating="${rating}"><strong>${rating[0].toUpperCase() + rating.slice(1)}</strong><span>${intervalLabel(nextInterval(reviewProgress(word, session.direction), rating))}</span></button>`).join('')}</div><div class="review-shortcuts"><kbd>1</kbd> Again &nbsp; <kbd>2</kbd> Hard &nbsp; <kbd>3</kbd> Good &nbsp; <kbd>4</kbd> Easy</div>` : productive ? '' : '<button class="button primary reveal-button" data-action="reveal">Reveal meaning</button><div class="review-shortcuts">Press <kbd>Space</kbd> to reveal</div>'}</div>`;
   if ($('#review-dialog').open) focusReview();
 }
 
@@ -416,6 +456,10 @@ $('#export-backup').addEventListener('click', exportBackup); $('#import-backup')
 $('#export-database').addEventListener('click', exportDatabase);
 $('#export-browser-recovery').addEventListener('click', exportBrowserRecovery);
 $('#import-file').addEventListener('change', event => importBackup(event.target.files[0]));
+$('#load-notebook-updates').addEventListener('click', () => {
+  if (session || $('#edit-dialog').open || commitPending || loadPending) { notify('Finish your review or close the word editor before loading updates. Completed work is already saved.', true); return; }
+  void loadDatabase();
+});
 $$('[data-view]').forEach(button => button.addEventListener('click', () => setView(button.dataset.view)));
 $$('[data-filter]').forEach(button => button.addEventListener('click', () => {
   activeFilter = button.dataset.filter;
@@ -458,11 +502,32 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) { re
 window.addEventListener('pagehide', () => clearTimeout(retryTimer));
 setInterval(() => { if (!document.hidden && !$('#review-dialog').open) render(); }, 60_000);
 render(); setView(location.hash.slice(1) || 'today');
-passageTools = initPassage({ getNotebook: () => notebook, saveCards: savePassageCards, canSave: () => !storageBlocked && !commitPending && !loadPending, setView });
+passageTools = initPassage({ getNotebook: () => notebook, saveCards: savePassageCards, canSave: () => !storageBlocked && !commitPending && !loadPending && !externalNotebookChange, setView });
 void loadDatabase();
 const writingReady = initWriting();
 void initSettings(setView);
+initTelegramSettings();
 window.addEventListener('beforeunload', event => { if (commitPending) { event.preventDefault(); event.returnValue = ''; } });
+
+async function checkNotebookRevision() {
+  if (document.hidden || revisionCheckPending || commitPending || loadPending || storageBlocked || notebookStore.revision === null) return;
+  revisionCheckPending = true;
+  try {
+    const response = await fetch('/api/storage/notebook-revision', { signal: AbortSignal.timeout(5000) });
+    if (!response.ok) return;
+    const result = await response.json();
+    if (commitPending || loadPending || storageBlocked) return;
+    if (Number.isSafeInteger(result.revision) && result.revision > notebookStore.revision) {
+      externalNotebookChange = true;
+      $('#external-notebook-notice').hidden = false;
+      passageTools?.refresh();
+    }
+  } catch { /* Ordinary save requests still protect against stale revisions. */ }
+  finally { revisionCheckPending = false; }
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) void checkNotebookRevision(); });
+window.addEventListener('focus', () => { void checkNotebookRevision(); });
+setInterval(() => { void checkNotebookRevision(); }, 10000);
 
 // Optional browser tool support uses the same actions as the visible app.
 const context = document.modelContext;

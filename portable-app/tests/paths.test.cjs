@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('node:path');
-const { portablePaths, isApplicationUrl, isReferenceUrl } = require('../src/paths.cjs');
+const { portablePaths, isApplicationUrl, isReferenceUrl, shouldHideToTray } = require('../src/paths.cjs');
 
 test('development data stays separate from the existing website', () => {
   const source = path.resolve('portable-app/src');
@@ -30,4 +30,8 @@ test('navigation permits only the local application page', () => {
 test('external links allow only the fixed IELTS reference, not OS handlers or AI URLs', () => {
   assert.equal(isReferenceUrl('https://ielts.org/take-a-test/preparation-resources/writing-test-resources'), true);
   for (const url of ['https://ielts.org.evil.test/', 'https://ielts.org/other', 'https://ielts.org/take-a-test/preparation-resources/writing-test-resources?next=evil', 'file:///C:/Windows/win.ini', 'ms-settings:', 'https://example.com']) assert.equal(isReferenceUrl(url), false);
+});
+test('tray closing is opt-in and must not intercept an explicit quit or missing tray', () => {
+  assert.equal(shouldHideToTray({ keepRunningTray: true, quitting: false, hasTray: true }), true);
+  for (const options of [{ keepRunningTray: false, quitting: false, hasTray: true }, { keepRunningTray: true, quitting: true, hasTray: true }, { keepRunningTray: true, quitting: false, hasTray: false }, {}]) assert.equal(shouldHideToTray(options), false);
 });

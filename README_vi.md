@@ -48,12 +48,27 @@ AI trực tuyến cần mạng và có thể tính phí. Nội dung bạn gửi 
 
 Nội dung bài chưa lưu chỉ nằm trong cửa sổ đang mở. Đừng đóng cửa sổ trước khi lưu các thẻ bạn cần. Tính năng này nhận chữ và ảnh, không nhận tệp âm thanh.
 
+## Học qua Telegram
+
+1. Mở Telegram, gửi `/newbot` cho **@BotFather** để tạo bot riêng.
+2. Mở mục **Telegram** trong Wordwell. Dán mã bot vào **Bot token**, bật bot rồi nhấn **Save Telegram settings**.
+3. Nhấn **Generate account-linking code**. Gửi lệnh `/start ...` đang hiện cho bot của bạn. Mã chỉ dùng được một lần, trong 10 phút. Đừng gửi mã cho người khác.
+
+Gửi `/review` để ôn tối đa 5 từ, hoặc `/review use` để gõ từ dựa vào nghĩa. Gửi `/add portable | Dễ mang theo` để xem trước thẻ mới, rồi chọn **Save card** nếu muốn lưu. `/stats` xem tiến độ; `/pause` và `/resume` tắt hoặc bật lại lời nhắc; `/stop` kết thúc lượt ôn. `/help` hiện các lệnh.
+
+Bạn có thể chọn giờ nhắc học và múi giờ, ví dụ `Asia/Ho_Chi_Minh`. Máy tính phải còn mở, có mạng và chạy Wordwell. Bản ứng dụng có tùy chọn chạy dưới biểu tượng nhỏ ở khay hệ thống khi đóng cửa sổ. Muốn dừng hẳn, nhấp chuột phải vào biểu tượng và chọn **Quit Wordwell**. Khi máy tắt hoặc ngủ, bot không hoạt động. Mỗi ngày chỉ thử gửi lời nhắc một lần; nếu gửi lỗi, dùng **Send test message** để kiểm tra kết nối.
+
+Bot chỉ nhận lệnh từ tài khoản đã liên kết, không nhận lệnh trong nhóm. Mỗi bản Wordwell nên dùng bot riêng. Tin nhắn học sẽ đi qua Telegram. Lệnh `/suggest từ` chỉ dùng AI khi bạn bật **Allow /suggest** và có thể mất phí; thẻ không tự được lưu.
+
+Nếu bot thay đổi sổ từ đang mở trên máy tính, nhấn **Load notebook updates** trước khi lưu tiếp. Chữ bạn đang nhập trong biểu mẫu vẫn được giữ.
+
 ## Giữ dữ liệu an toàn
 
 Ứng dụng tạo thư mục `data` bên cạnh tệp `.exe`:
 
 - `data/wordwell.sqlite`: Từ vựng, lịch ôn và bản nháp Writing đã lưu.
 - `data/ai-settings.json`: Cài đặt AI và API key. Mã được lưu dưới dạng chữ thông thường, không được mã hóa. Đừng chia sẻ tệp này.
+- `data/telegram-settings.json`: Mã bot, tài khoản liên kết và giờ nhắc học. Tệp này cũng không được mã hóa và không nằm trong bản sao SQLite. Đừng chia sẻ.
 
 Muốn chuyển ứng dụng sang chỗ khác, hãy đóng Wordwell rồi chuyển cả tệp `.exe` và thư mục `data`. Đừng rút USB khi ứng dụng còn mở.
 

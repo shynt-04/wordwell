@@ -14,7 +14,7 @@ No language-specific style or formatter is established yet. Follow the conventio
 
 ## Testing Guidelines
 
-Tests use Node's built-in test runner. Add tests with new behavior and bug fixes, use names that describe the behavior under test, and document the command contributors should run. Keep tests deterministic, use isolated databases/settings, and never send paid AI requests in automated checks. Verify the packaged desktop runtime as well as unit tests when changing packaging or startup behavior.
+Tests use Node's built-in test runner. Add tests with new behavior and bug fixes, use names that describe the behavior under test, and document the command contributors should run. Keep tests deterministic, use isolated databases/settings, and never send paid AI requests or real Telegram messages in automated checks. Telegram tests inject a mock transport and fixed clock; the gateway is disabled by default. Verify the packaged desktop runtime as well as unit tests when changing packaging or startup behavior.
 
 ## Commit & Pull Request Guidelines
 

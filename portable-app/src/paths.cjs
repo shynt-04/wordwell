@@ -26,4 +26,6 @@ function isReferenceUrl(value) {
   } catch { return false; }
 }
 
-module.exports = { portablePaths, isApplicationUrl, isReferenceUrl };
+function shouldHideToTray({ keepRunningTray, quitting, hasTray }) { return keepRunningTray === true && quitting !== true && hasTray === true; }
+
+module.exports = { portablePaths, isApplicationUrl, isReferenceUrl, shouldHideToTray };

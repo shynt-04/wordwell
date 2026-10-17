@@ -53,17 +53,18 @@ async function connect(url) {
 
 async function launch(exe, { overrideHome = true } = {}) {
   const port = await unusedPort();
+  const mainPort = await unusedPort();
   const environment = { ...process.env };
   delete environment.PORTABLE_EXECUTABLE_DIR;
   if (overrideHome) environment.PORTABLE_EXECUTABLE_DIR = home;
   // Never inherit Electron's Node-only mode or the user's configured AI keys.
   for (const name of ['ELECTRON_RUN_AS_NODE', 'DEEPSEEK_API_KEY', 'DEEPSEEK_MODEL', 'ENABLE_API_KEY_REVEAL']) delete environment[name];
-  const child = spawn(exe, ['--wordwell-smoke-test', `--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'], { env: environment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+  const child = spawn(exe, ['--wordwell-smoke-test', `--inspect=127.0.0.1:${mainPort}`, `--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'], { env: environment, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '', finished = false;
   child.stdout.on('data', chunk => { output += chunk; }); child.stderr.on('data', chunk => { output += chunk; });
   child.on('exit', () => { finished = true; });
   child.on('error', error => { output += error.message; finished = true; });
-  let client;
+  let client, native;
   try {
     const deadline = Date.now() + 60000;
     while (Date.now() < deadline && !finished) {
@@ -85,15 +86,20 @@ async function launch(exe, { overrideHome = true } = {}) {
       if (!ready) await pause(100);
     }
     if (!ready) throw new Error(`Wordwell UI did not finish loading. ${output.slice(-4000)}`);
-    return { ...client, output: () => output, async stop() {
+    const mainTargets = await (await fetch(`http://127.0.0.1:${mainPort}/json/list`, { signal: AbortSignal.timeout(5000) })).json();
+    native = await connect(mainTargets[0].webSocketDebuggerUrl);
+    return { ...client, evaluateMain: native.evaluate, output: () => output, async stop() {
       const origin = await client.evaluate('location.origin');
-      await client.call('Browser.close').catch(() => {});
+      // A browser close intentionally hides a tray-enabled app. Exercise the
+      // native Quit action instead, and detach its debugger before shutdown.
+      await native.evaluate(`(() => { const e = process.getBuiltinModule('module').createRequire(process.resourcesPath + '/app.asar/package.json')('electron'); setTimeout(() => e.app.quit(), 100); return true; })()`);
+      native.close();
       for (let i = 0; i < 100 && !finished; i++) await pause(100);
       if (!finished) { child.kill(); throw new Error('Desktop did not stop after closing its window'); }
-      client.close();
+      client.close(); native.close();
       await assert.rejects(fetch(`${origin}/`, { signal: AbortSignal.timeout(1500) }), 'local server must stop when the app closes');
     } };
-  } catch (error) { client?.close(); child.kill(); throw error; }
+  } catch (error) { client?.close(); native?.close(); child.kill(); throw error; }
 }
 
 let running;
@@ -106,6 +112,39 @@ let running;
   const packagedFiles = readdirSync(path.join(resources, 'vocab-app'));
   assert.ok(packagedFiles.includes('server.mjs') && packagedFiles.includes('dist'));
   running = await launch(executable);
+  assert.equal(await running.evaluateMain(`(async () => {
+    const req = process.getBuiltinModule('module').createRequire(process.resourcesPath + '/app.asar/package.json');
+    const source = process.resourcesPath + '/vocab-app';
+    const { createDatabase } = req(source + '/database.mjs');
+    const { createTelegramGateway } = req(source + '/telegram.mjs');
+    const db = createDatabase(':memory:');
+    const now = Date.now(), messages = []; let messageId = 50;
+    const bot = await createTelegramGateway({ database: db, autoPoll: false, clock: () => now, fetchImpl: async (url, options) => {
+      const method = new URL(url).pathname.split('/').at(-1), payload = JSON.parse(options.body);
+      let result = true;
+      if (method === 'getMe') result = { is_bot: true, username: 'wordwell_smoke_bot' };
+      if (method === 'getWebhookInfo') result = { url: '' };
+      if (method === 'sendMessage') { result = { message_id: ++messageId }; messages.push({ ...payload, message_id: messageId }); }
+      return new Response(JSON.stringify({ ok: true, result }));
+    } });
+    try {
+      await bot.configure({ revision: 0, token: '123456789:fake_telegram_token_for_desktop_tests', enabled: true, reminders: false, reminderTime: '19:00', timeZone: 'Asia/Bangkok', allowAI: false, keepRunningTray: false });
+      const pair = await bot.pair(bot.state().revision);
+      const message = (update_id, text) => ({ update_id, message: { text, date: Math.floor(now / 1000), from: { id: 12345, is_bot: false }, chat: { id: 12345, type: 'private' } } });
+      const click = async (update_id, action) => {
+        const msg = messages.at(-1), data = msg.reply_markup.inline_keyboard.flat().find(button => button.callback_data.endsWith(':' + action)).callback_data;
+        await bot.handleUpdate({ update_id, callback_query: { id: 'desktop-' + update_id, data, from: { id: 12345, is_bot: false }, message: { message_id: msg.message_id, chat: { id: 12345, type: 'private' } } } });
+      };
+      await bot.handleUpdate(message(1, '/start ' + pair.pairing.code));
+      await bot.handleUpdate(message(2, '/add native | Tested in the bundled runtime'));
+      if (db.read('notebook').notebook.words.length !== 0) return false;
+      await click(3, 'save');
+      await bot.handleUpdate(message(4, '/review'));
+      await click(5, 'reveal'); await click(6, 'good');
+      const notebook = db.read('notebook').notebook;
+      return notebook.words.length === 1 && notebook.words[0].word === 'native' && notebook.reviews.length === 1 && notebook.reviews[0].direction === 'meaning';
+    } finally { bot.stop(); await bot.idle(); db.close(); }
+  })()`), true, 'Telegram operations must work inside the actual bundled Node/SQLite runtime');
   assert.deepEqual(await running.evaluate(`({ node: typeof window.require, process: typeof window.process, electron: typeof window.electron })`), { node: 'undefined', process: 'undefined', electron: 'undefined' });
   assert.equal(await running.evaluate(`document.querySelectorAll('[data-view="passage"]').length > 0`), true);
   assert.equal(await running.evaluate(`(async () => { const r = await fetch('/'); return r.headers.get('content-security-policy').includes("script-src 'self'") && r.headers.get('content-security-policy').includes("object-src 'none'"); })()`), true);
@@ -115,6 +154,8 @@ let running;
     return statuses;
   })()`);
   assert.deepEqual(guards, [404, 404, 404, 403]);
+  assert.equal(await running.evaluate(`(async () => { const s = await (await fetch('/api/settings/telegram')).json(); return s.desktop === true && s.enabled === false && s.hasToken === false && s.allowAI === false && s.keepRunningTray === false; })()`), true);
+  assert.equal(await running.evaluate(`(async () => { const r = await fetch('/data/telegram-settings.json'); return r.status === 404; })()`), true);
   assert.equal(await running.evaluate(`(async () => { try { await fetch('file:///C:/Windows/win.ini'); return false; } catch { return true; } })()`), true);
   assert.equal(await running.evaluate(`window.open('file:///C:/Windows/win.ini') === null`), true);
   assert.equal(await running.evaluate(`(async () => { const r = await fetch('/api/settings/ai'); const s = await r.json(); return s.configured === false && s.allowKeyReveal === false; })()`), true);
@@ -133,6 +174,13 @@ let running;
   })()`), true);
   const screenshot = await running.call('Page.captureScreenshot', { format: 'png' });
   writeFileSync(path.join(home, 'desktop.png'), Buffer.from(screenshot.data, 'base64'));
+  assert.equal(await running.evaluate(`(() => {
+    const initial = document.documentElement.dataset.theme;
+    document.querySelector('#theme-toggle').click();
+    const toggled = document.documentElement.dataset.theme;
+    document.querySelector('#theme-toggle').click();
+    return Boolean(initial) && toggled !== initial && document.documentElement.dataset.theme === initial && document.querySelectorAll('#recent-words .mastery-pips i').length === 4;
+  })()`), true);
   assert.equal(await running.evaluate(`(async () => {
     document.querySelector('[data-view="writing"]').click();
     for (const [id, text] of [['writing-question', 'Discuss the benefits of portable learning.'], ['writing-essay', 'A portable notebook makes it easier to practice every day.']]) {
@@ -140,12 +188,29 @@ let running;
     }
     for (let i = 0; i < 100; i++) {
       const s = await (await fetch('/api/storage/writing')).json();
-      if (s.draft?.essay === 'A portable notebook makes it easier to practice every day.' && document.querySelector('#writing-save-status').textContent.startsWith('Saved')) return true;
+      if (s.draft?.essay === 'A portable notebook makes it easier to practice every day.' && document.querySelector('#writing-save-status').textContent.startsWith('Saved')) return document.querySelector('#writing-word-bar')?.style.width === '4%';
       await new Promise(resolve => setTimeout(resolve, 50));
     }
     return false;
   })()`), true);
   assert.equal(await running.evaluate(`(async () => { const r = await fetch('/api/storage/backup'); const b = new Uint8Array(await r.arrayBuffer()); return r.ok && new TextDecoder().decode(b.slice(0, 15)) === 'SQLite format 3'; })()`), true);
+  assert.equal(await running.evaluate(`(async () => {
+    document.querySelector('[data-view="telegram"]').click();
+    for (let i = 0; i < 100 && document.querySelector('#telegram-fields').disabled; i++) await new Promise(resolve => setTimeout(resolve, 50));
+    const background = document.querySelector('#telegram-background'); background.checked = true; background.dispatchEvent(new Event('input', { bubbles: true }));
+    document.querySelector('#telegram-form').requestSubmit();
+    for (let i = 0; i < 100; i++) {
+      const state = await (await fetch('/api/settings/telegram')).json();
+      if (state.keepRunningTray === true && document.querySelector('#telegram-status').textContent.includes('saved')) return state.enabled === false && state.hasToken === false;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    return false;
+  })()`), true);
+  const telegramScreenshot = await running.call('Page.captureScreenshot', { format: 'png' });
+  writeFileSync(path.join(home, 'telegram-desktop.png'), Buffer.from(telegramScreenshot.data, 'base64'));
+  assert.equal(await running.evaluateMain(`(() => { const e = process.getBuiltinModule('module').createRequire(process.resourcesPath + '/app.asar/package.json')('electron'); const window = e.BrowserWindow.getAllWindows()[0]; window.close(); return e.BrowserWindow.getAllWindows().length === 1 && !window.isVisible(); })()`), true);
+  await pause(500);
+  assert.equal(await running.evaluate(`(async () => (await fetch('/api/storage/notebook')).ok)()`), true, 'closing to the tray must retain the renderer and database server');
   assert.deepEqual(running.exceptions, []);
   await running.stop(); running = null;
   assert.ok(existsSync(path.join(home, 'data/wordwell.sqlite')));
@@ -171,7 +236,7 @@ let running;
   assert.equal(await running.evaluate(`(async () => { const s = await (await fetch('/api/storage/notebook')).json(); return s.notebook.words[0]?.word === 'portable'; })()`), true);
   assert.deepEqual(running.exceptions, []);
   await running.stop(); running = null;
-  console.log('PASS: real packaged UI, manual card saving, notebook and Writing persistence after restart, SQLite backup, portable executable data-directory handoff, masked setup, renderer isolation, CSP, private paths/traversal, blocked file URLs, and server shutdown.');
+  console.log('PASS: real packaged UI, Telegram add/review in bundled Node with a mock transport, close-to-tray and native quit, manual card saving, notebook and Writing persistence after restart, SQLite backup, portable data-directory handoff, renderer isolation, CSP, private paths/traversal and blocked file URLs. No real Telegram or paid AI requests.');
   console.log(`Isolated QA data and screenshot: ${home}`);
 })().catch(async error => {
   console.error(error.stack);

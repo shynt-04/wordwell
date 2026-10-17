@@ -21,20 +21,28 @@ function distance(x, y, a, b) {
   return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy);
 }
 function png(size) {
-  const points = [[8, 12], [13, 28], [20, 16], [27, 28], [32, 12]];
+  const points = [[8.5, 13], [13.5, 28], [20, 17], [26.5, 28], [31.5, 13]];
   const pixels = Buffer.alloc(size * (1 + size * 4));
   for (let row = 0; row < size; row++) for (let col = 0; col < size; col++) {
-    let alpha = 0, white = 0;
+    let alpha = 0, white = 0, gold = 0;
     for (let sy = 0; sy < 4; sy++) for (let sx = 0; sx < 4; sx++) {
       const x = (col + (sx + .5) / 4) * 40 / size, y = (row + (sy + .5) / 4) * 40 / size;
       const rounded = Math.hypot(Math.max(0, Math.abs(x - 20) - 9), Math.max(0, Math.abs(y - 20) - 9)) <= 9;
       if (!rounded) continue;
       alpha++;
-      if (points.slice(1).some((point, i) => distance(x, y, points[i], point) < 1.5)) white++;
+      if (Math.hypot(x - 31.5, y - 9.5) <= 2.3) gold++;
+      else if (points.slice(1).some((point, i) => distance(x, y, points[i], point) < 1.55)) white++;
     }
     const at = row * (1 + size * 4) + 1 + col * 4;
-    const mix = alpha ? white / alpha : 0;
-    pixels[at] = Math.round(52 + 203 * mix); pixels[at + 1] = Math.round(69 + 186 * mix); pixels[at + 2] = Math.round(211 + 44 * mix); pixels[at + 3] = Math.round(alpha / 16 * 255);
+    const grad = Math.max(0, Math.min(1, (col + row) / Math.max(1, (size - 1) * 2)));
+    let r = 79 + (37 - 79) * grad, g = 70 + (48 - 70) * grad, b = 229 + (156 - 229) * grad;
+    if (alpha) {
+      const wMix = white / alpha, gMix = gold / alpha;
+      r = r * (1 - wMix - gMix) + 255 * wMix + 251 * gMix;
+      g = g * (1 - wMix - gMix) + 255 * wMix + 191 * gMix;
+      b = b * (1 - wMix - gMix) + 255 * wMix + 36 * gMix;
+    }
+    pixels[at] = Math.round(r); pixels[at + 1] = Math.round(g); pixels[at + 2] = Math.round(b); pixels[at + 3] = Math.round(alpha / 16 * 255);
   }
   const header = Buffer.alloc(13); header.writeUInt32BE(size); header.writeUInt32BE(size, 4); header[8] = 8; header[9] = 6;
   return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', header), chunk('IDAT', deflateSync(pixels)), chunk('IEND', Buffer.alloc(0))]);

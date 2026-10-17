@@ -21,6 +21,7 @@ export function createNotebookStore() {
   let revision = null;
   return {
     migrationWarning: '',
+    get revision() { return revision; },
     async read() {
       let data = await request('notebook');
       revision = data.revision;

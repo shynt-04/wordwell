@@ -48,6 +48,7 @@ export function createDatabase(path = DATABASE_PATH) {
     CREATE TABLE IF NOT EXISTS writing_drafts (id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS browser_migrations (fingerprint TEXT PRIMARY KEY, kind TEXT NOT NULL, migratedAt INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS writing_archive (fingerprint TEXT PRIMARY KEY, payload TEXT NOT NULL, archivedAt INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS gateway_receipts (namespace TEXT NOT NULL, updateId INTEGER NOT NULL, PRIMARY KEY(namespace, updateId));
   `);
   const revision = kind => db.prepare('SELECT revision FROM storage_meta WHERE kind = ?').get(kind).revision;
   const transaction = run => {
@@ -79,6 +80,21 @@ export function createDatabase(path = DATABASE_PATH) {
   return {
     path,
     read,
+    notebookRevision: () => revision('notebook'),
+    hasGatewayReceipt: (namespace, updateId) => Boolean(db.prepare('SELECT 1 FROM gateway_receipts WHERE namespace = ? AND updateId = ?').get(namespace, updateId)),
+    mutateNotebook(namespace, updateId, change) {
+      if (typeof namespace !== 'string' || !/^[a-f0-9]{64}$/u.test(namespace) || !Number.isSafeInteger(updateId) || updateId < 0 || typeof change !== 'function') throw new StorageError('Invalid gateway operation.');
+      return transaction(() => {
+        if (db.prepare('SELECT 1 FROM gateway_receipts WHERE namespace = ? AND updateId = ?').get(namespace, updateId)) return { duplicate: true };
+        const current = read('notebook').notebook;
+        const result = change(current);
+        if (result?.notebook) write('notebook', clean('notebook', result.notebook));
+        db.prepare('INSERT INTO gateway_receipts VALUES (?, ?)').run(namespace, updateId);
+        // Bound the journal without storing tokens, chat IDs, or message text.
+        db.exec('DELETE FROM gateway_receipts WHERE rowid <= (SELECT COALESCE(MAX(rowid), 0) - 10000 FROM gateway_receipts)');
+        return { ...result, duplicate: false };
+      });
+    },
     save(kind, payload) {
       if (!payload || !Number.isSafeInteger(payload.revision) || payload.revision < 0) throw new StorageError('Refresh Wordwell before saving.');
       if (kind === 'notebook' && payload.value?.version === 1) throw new StorageError('Wordwell has been upgraded. Refresh before saving to preserve both review directions.', 409);

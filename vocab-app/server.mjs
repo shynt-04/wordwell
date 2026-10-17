@@ -1,12 +1,13 @@
 import { createServer } from 'node:http';
 import { readFile, realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { resolve, extname, relative, isAbsolute, sep } from 'node:path';
+import { resolve, extname, relative, isAbsolute, sep, dirname, join } from 'node:path';
 import { completeVocabulary, validateLookup, LookupError, DEFAULT_MODEL } from './deepseek.mjs';
 import { assessWriting, validateWritingRequest } from './writing.mjs';
 import { createDatabase, StorageError } from './database.mjs';
 import { createSettingsStore } from './ai-settings.mjs';
 import { analysePassage, extractPassage, validatePassageRequest, validateExtractionRequest } from './passage.mjs';
+import { createTelegramGateway } from './telegram.mjs';
 
 const root = fileURLToPath(new URL('./dist/', import.meta.url));
 const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.svg': 'image/svg+xml' };
@@ -14,6 +15,7 @@ const publicAssets = new Set([
   '/index.html', '/styles.css', '/app.js', '/autofill.js', '/notebook.js', '/review-session.js',
   '/persistence.js', '/settings.js', '/writing-data.js', '/writing.js',
   '/passage.js', '/passage-data.js', '/image-input.js',
+  '/telegram-settings.js',
 ]);
 
 function requestPath(target) {
@@ -87,10 +89,15 @@ function readJson(request, limit = 4096) {
   });
 }
 
-export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal = false, settingsPath, staticRoot = root, lookup = completeVocabulary, writingEvaluator = assessWriting, passageAnalyser = analysePassage, passageExtractor = extractPassage, database = createDatabase() } = {}) {
+export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal = false, settingsPath, staticRoot = root, lookup = completeVocabulary, writingEvaluator = assessWriting, passageAnalyser = analysePassage, passageExtractor = extractPassage, database = createDatabase(), telegramPath, telegramFetch, telegramAutoPoll = true, desktop = false, onTelegramSettings } = {}) {
   const cache = new Map();
-  const settingsReady = createSettingsStore({ path: settingsPath, legacyKey: apiKey, legacyModel: model, allowKeyReveal });
   let activeRequests = 0;
+  const settingsReady = createSettingsStore({ path: settingsPath, legacyKey: apiKey, legacyModel: model, allowKeyReveal });
+  const telegramReady = createTelegramGateway({ database, path: telegramPath ?? (settingsPath ? join(dirname(settingsPath), 'telegram-settings.json') : database.path === ':memory:' ? null : join(dirname(database.path), 'telegram-settings.json')), desktop, fetchImpl: telegramFetch, autoPoll: telegramAutoPoll, getAI: async () => (await settingsReady).active(), onChange: onTelegramSettings, aiCompleter: async (word, options) => {
+    if (activeRequests >= 2) throw new LookupError('Other AI requests are running. Please try again shortly.', 429);
+    activeRequests++;
+    try { return await lookup(word, options); } finally { activeRequests--; }
+  } });
   const server = createServer(async (request, response) => {
     try {
       const host = request.headers.host;
@@ -98,6 +105,20 @@ export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal 
       const hosts = [`127.0.0.1:${address.port}`, `localhost:${address.port}`];
       if (!hosts.includes(host)) { json(response, 403, { error: 'Use the local Wordwell address.' }); return; }
       const pathname = requestPath(request.url);
+      if (pathname === '/api/settings/telegram' || ['/api/settings/telegram/pair', '/api/settings/telegram/disconnect', '/api/settings/telegram/test'].includes(pathname)) {
+        if ((request.headers.origin && request.headers.origin !== `http://${host}`) || request.headers['sec-fetch-site'] === 'cross-site') { json(response, 403, { error: 'Telegram settings are only available from your local Wordwell page.' }); return; }
+        const telegram = await telegramReady;
+        if (pathname === '/api/settings/telegram' && request.method === 'GET') { json(response, 200, telegram.state()); return; }
+        if (pathname === '/api/settings/telegram' && request.method === 'PUT' || pathname !== '/api/settings/telegram' && request.method === 'POST') {
+          if (request.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') { json(response, 415, { error: 'Use a JSON request.' }); return; }
+          const payload = await readJson(request, 4096);
+          if (pathname.endsWith('/telegram')) { json(response, 200, await telegram.configure(payload)); return; }
+          if (!payload || Object.keys(payload).length !== 1 || !Number.isSafeInteger(payload.revision) || payload.revision < 0) throw new LookupError('Reload Telegram settings before trying again.', 400);
+          const result = pathname.endsWith('/pair') ? await telegram.pair(payload.revision) : pathname.endsWith('/disconnect') ? await telegram.disconnect(payload.revision) : await telegram.test(payload.revision);
+          json(response, 200, result); return;
+        }
+        json(response, 405, { error: 'This Telegram action is not available.' }); return;
+      }
       if (['/api/settings/ai', '/api/settings/ai/dismiss', '/api/settings/ai/models', '/api/settings/ai/key'].includes(pathname)) {
         if ((request.headers.origin && request.headers.origin !== `http://${host}`) || request.headers['sec-fetch-site'] === 'cross-site') { json(response, 403, { error: 'Settings are only available from your local Wordwell page.' }); return; }
         const settings = await settingsReady;
@@ -123,6 +144,7 @@ export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal 
       if (pathname.startsWith('/api/storage/')) {
         if ((request.headers.origin && request.headers.origin !== `http://${host}`) || request.headers['sec-fetch-site'] === 'cross-site') { json(response, 403, { error: 'Database access is only available from your local Wordwell page.' }); return; }
         const kind = pathname.slice('/api/storage/'.length);
+        if (kind === 'notebook-revision' && request.method === 'GET') { json(response, 200, { revision: database.notebookRevision() }); return; }
         if (kind === 'backup' && request.method === 'GET') {
           const contents = await database.export();
           response.writeHead(200, { 'Content-Type': 'application/vnd.sqlite3', 'Content-Disposition': 'attachment; filename="wordwell.sqlite"', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
@@ -183,7 +205,12 @@ export function createAppServer({ apiKey, model = DEFAULT_MODEL, allowKeyReveal 
       else json(response, 500, { error: 'Wordwell could not process this request. Please try again.' });
     }
   });
-  server.on('close', () => database.close());
+  server.telegramReady = telegramReady;
+  let stopped = false;
+  let gateway;
+  void telegramReady.then(telegram => { gateway = telegram; if (stopped) telegram.stop(); });
+  server.on('listening', () => { void telegramReady.then(telegram => { if (!stopped) telegram.start(); }); });
+  server.on('close', () => { stopped = true; gateway?.stop(); database.close(); });
   return server;
 }
 

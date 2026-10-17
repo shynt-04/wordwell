@@ -14,6 +14,7 @@ The app creates `data/` **beside the portable executable**, not in the runtime's
 
 - `data/wordwell.sqlite`: notebook, both review schedules, and saved Writing material.
 - `data/ai-settings.json`: provider profiles and API keys in plain text. Keep it private.
+- `data/telegram-settings.json`: private bot token, linked account, and reminder settings, also in plain text and excluded from SQLite backups.
 - `data/browser/` and `data/logs/`: desktop browser profile and runtime files.
 
 To share a fresh copy, send **only the portable `.exe`**, never your `data/` folder or `.env`. The build does not include personal website data or credentials. Unsaved passage material stays in the open window only.
@@ -21,6 +22,12 @@ To share a fresh copy, send **only the portable `.exe`**, never your `data/` fol
 The website and desktop app have separate data. To transfer existing learning data, close both, back up both databases, then copy the website's `data/wordwell.sqlite` to the desktop app's `data/wordwell.sqlite`. Do not overwrite a notebook you need without a backup. Set up AI again in Settings, or privately copy `ai-settings.json` while both apps are closed. Old browser-only data must first be migrated by opening the website in its original browser.
 
 An optional `.env` beside the portable executable supports the existing legacy AI variables and `ENABLE_API_KEY_REVEAL=true`. The desktop copy ignores `PORT` and uses a free loopback-only port. It does not inherit shell AI credentials. Reveal remains disabled by default.
+
+## Telegram and background mode
+
+Open **Telegram** in the sidebar to configure your own BotFather token, enable the bot, and link your private account with an expiring one-time code. See [Telegram setup](../README.md#telegram-setup) for commands and safety details. The bot is disabled by default; no bot or paid AI request is made automatically on a fresh installation.
+
+**Keep Wordwell running in the tray** is optional and off by default. When enabled, closing the window hides it instead of stopping the app; unfinished material stays in that window. Double-click the tray icon or choose **Show Wordwell** to return. Choose **Quit Wordwell** to stop both the app and bot. Your computer must remain awake and connected; background mode does not install a Windows service or enable startup with Windows.
 
 ## Develop and build
 

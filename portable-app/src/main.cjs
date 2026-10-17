@@ -1,8 +1,8 @@
-const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
+const { app, BrowserWindow, Menu, dialog, shell, Tray } = require('electron');
 const { mkdirSync, accessSync, constants } = require('node:fs');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
-const { portablePaths, isApplicationUrl, isReferenceUrl } = require('./paths.cjs');
+const { portablePaths, isApplicationUrl, isReferenceUrl, shouldHideToTray } = require('./paths.cjs');
 
 app.setName('Wordwell');
 // An explicit local test flag keeps automated packaged-runtime checks invisible.
@@ -13,6 +13,20 @@ let window;
 let server;
 let shutdown = false;
 let startupError;
+let tray = null, keepRunningTray = false, quitting = false;
+const iconPath = app.isPackaged ? path.join(process.resourcesPath, 'wordwell.ico') : path.resolve(__dirname, '../build/wordwell.ico');
+function showWindow() { if (window) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } }
+function updateBackground(preferences) {
+  keepRunningTray = preferences.keepRunningTray === true;
+  if (keepRunningTray && !tray) {
+    try {
+      tray = new Tray(iconPath);
+      tray.setToolTip('Wordwell is running. Your computer must stay awake for Telegram.');
+      tray.setContextMenu(Menu.buildFromTemplate([{ label: 'Show Wordwell', click: showWindow }, { type: 'separator' }, { label: 'Quit Wordwell', click: () => { quitting = true; app.quit(); } }]));
+      tray.on('double-click', showWindow);
+    } catch { tray = null; keepRunningTray = false; if (!smokeTest) dialog.showErrorBox('Tray mode is unavailable', 'Closing the window will stop Wordwell. Keep the window open for Telegram, or restart the app and try again.'); }
+  } else if (!keepRunningTray && tray) { tray.destroy(); tray = null; if (window && !window.isVisible() && !smokeTest) showWindow(); }
+}
 
 try {
   mkdirSync(paths.browser, { recursive: true });
@@ -32,6 +46,7 @@ if (!startupError && !app.requestSingleInstanceLock()) {
   });
   app.on('window-all-closed', () => app.quit());
   app.on('before-quit', event => {
+    quitting = true;
     if (!server || shutdown || BrowserWindow.getAllWindows().length) return;
     event.preventDefault();
     shutdown = true;
@@ -49,14 +64,14 @@ if (!startupError && !app.requestSingleInstanceLock()) {
     // Ignore shell credentials and PORT. Only an optional .env beside this app
     // configures the portable copy; keys from the website are never inherited.
     const config = await loadConfig(paths.config, {});
-    server = createAppServer({ ...config, database: createDatabase(paths.database), settingsPath: paths.settings });
+    server = createAppServer({ ...config, database: createDatabase(paths.database), settingsPath: paths.settings, desktop: true, onTelegramSettings: updateBackground });
     await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
     const origin = `http://127.0.0.1:${server.address().port}`;
     Menu.setApplicationMenu(null);
     window = new BrowserWindow({
       title: 'Wordwell', width: 1280, height: 860, minWidth: 760, minHeight: 600,
-      backgroundColor: '#f7f8fc', show: false,
-      icon: app.isPackaged ? path.join(process.resourcesPath, 'wordwell.ico') : path.resolve(__dirname, '../build/wordwell.ico'),
+      backgroundColor: '#f3f5fb', autoHideMenuBar: true, show: false,
+      icon: iconPath,
       webPreferences: { nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, webviewTag: false, spellcheck: true, devTools: !app.isPackaged }
     });
     const session = window.webContents.session;
@@ -78,13 +93,15 @@ if (!startupError && !app.requestSingleInstanceLock()) {
     window.webContents.on('will-attach-webview', event => event.preventDefault());
     window.webContents.on('will-prevent-unload', event => {
       const leave = dialog.showMessageBoxSync(window, { type: 'question', title: 'Leave Wordwell?', message: 'You have unfinished work.', detail: 'Unsaved passage material or pending edits may be lost. Cancel to finish or save your work first.', buttons: ['Keep working', 'Close Wordwell'], defaultId: 0, cancelId: 0, noLink: true });
-      if (leave === 1) event.preventDefault();
+      if (leave === 1) event.preventDefault(); else quitting = false;
     });
     window.webContents.on('render-process-gone', () => {
       dialog.showErrorBox('Wordwell stopped displaying', 'Close and reopen Wordwell. Saved learning data remains in the data folder beside the application.');
     });
-    window.on('closed', () => { window = null; });
+    window.on('close', event => { if (shouldHideToTray({ keepRunningTray, quitting, hasTray: Boolean(tray) })) { event.preventDefault(); window.hide(); if (smokeTest) console.log('Wordwell smoke check: window hidden in tray'); } });
+    window.on('closed', () => { window = null; tray?.destroy(); tray = null; });
     await window.loadURL(`${origin}/`);
+    updateBackground((await server.telegramReady).state());
     if (!smokeTest) window.show();
   }).catch(error => {
     // Do not expose provider credentials or full filesystem details in dialogs.

@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Your personal IELTS practice space. Remember vocabulary and improve your writing with AI feedback.">
   <title>Wordwell · IELTS practice</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='12' fill='%233445d3'/%3E%3Cpath d='m8 12 5 16 7-12 7 12 5-16' fill='none' stroke='white' stroke-width='3' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='40' y2='40' gradientUnits='userSpaceOnUse'%3E%3Cstop offset='0' stop-color='%234f46e5'/%3E%3Cstop offset='1' stop-color='%2325309c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='40' height='40' rx='12' fill='url(%23g)'/%3E%3Cpath d='m8.5 13 5 15 6.5-11 6.5 11 5-15' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='31.5' cy='9.5' r='2.2' fill='%23fbbf24'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <svg class="icon-definitions" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><defs>
     <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
     <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 5v15M3 4h5a4 4 0 0 1 4 3 4 4 0 0 1 4-3h5v15h-5a4 4 0 0 0-4 2 4 4 0 0 0-4-2H3z"/></symbol>
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
     <symbol id="i-audio" viewBox="0 0 24 24"><path d="m11 4-6 5H2v6h3l6 5zM15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14"/></symbol>
@@ -21,7 +22,9 @@
     <symbol id="i-edit" viewBox="0 0 24 24"><path d="m14 5 5 5M3 21l5-1L21 7a3.5 3.5 0 0 0-5-5L3 15z"/></symbol>
     <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></symbol>
     <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 2.6 6.4L21 12l-6.4 2.6L12 21l-2.6-6.4L3 12l6.4-2.6z"/></symbol>
-    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="white"/><circle cx="15" cy="17" r="3" fill="white"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h16M4 17h16"/><circle cx="9" cy="7" r="3" fill="currentColor"/><circle cx="15" cy="17" r="3" fill="currentColor"/></symbol>
+    <symbol id="i-telegram" viewBox="0 0 24 24"><path d="m21 4-3.5 16-6.5-5-3.5 3v-4.5L17 7 6.5 12.5 2 10.5z"/></symbol>
+    <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12 3c1.5 3.5 4.5 5.5 4.5 9.5a4.5 4.5 0 1 1-9 0c0-2.5 1.5-4.5 3-6.5 0 2 1.5 3 1.5 3s0-3.5 0-6z"/></symbol>
   </defs></svg>
   <div class="app-layout">
     <aside class="sidebar">
@@ -33,25 +36,27 @@
         <button class="nav-item" data-view="passage"><svg><use href="#i-search"/></svg>From a passage</button>
         <button class="nav-item" data-view="writing"><svg><use href="#i-edit"/></svg>Writing practice</button>
         <button class="nav-item" data-view="settings"><svg><use href="#i-settings"/></svg>Settings</button>
+        <button class="nav-item" data-view="telegram"><svg><use href="#i-telegram"/></svg>Telegram</button>
       </nav>
       <div class="sidebar-note"><span class="small-eyebrow">ONE WORD AT A TIME</span><p>Small sessions.<br>Stronger recall.</p><div class="mini-cards" aria-hidden="true"><span>Aa</span><span>✓</span><span>✦</span></div></div>
       <div class="sidebar-bottom"><button class="nav-item" data-view="backup"><svg><use href="#i-download"/></svg>Backup & restore</button><div class="local-label"><span class="local-dot"></span>Local SQLite database</div></div>
     </aside>
 
     <main class="main-area">
-      <header class="topbar"><div class="breadcrumb">Personal notebook <span>/</span> <strong id="workspace-title">IELTS vocabulary</strong></div><div class="topbar-actions"><button id="ai-settings-shortcut" class="ai-settings-shortcut" type="button">AI Settings</button><span class="goal-label">IELTS PREP</span></div></header>
+      <header class="topbar"><div class="breadcrumb">Personal notebook <span>/</span> <strong id="workspace-title">IELTS vocabulary</strong></div><div class="topbar-actions"><button id="ai-settings-shortcut" class="ai-settings-shortcut" type="button">AI Settings</button><button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch color theme" aria-pressed="false" title="Toggle dark or light theme"><svg class="theme-icon-light" aria-hidden="true"><use href="#i-sun"/></svg><svg class="theme-icon-dark" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label">Dark</span></button><span class="goal-label">IELTS PREP</span></div></header>
       <div class="content">
+        <div id="external-notebook-notice" class="external-notebook-notice" role="status" hidden><span>Your notebook changed in Telegram or another window. Load the latest words and progress before saving. Text in your forms will be kept.</span><button id="load-notebook-updates" class="button secondary" type="button">Load notebook updates</button></div>
         <section id="today-view" class="view">
           <div class="page-heading"><div><p class="eyebrow" id="today-date">YOUR DAILY PRACTICE</p><h1>A few words, every day.</h1><p class="muted">Build the vocabulary you’ll remember when it matters.</p></div><div class="heading-stamp" aria-hidden="true"><svg><use href="#i-spark"/></svg></div></div>
           <div class="workspace-grid">
             <div class="practice-column">
               <div class="practice-choice-heading"><h2>How will you practice today?</h2><span>Two ways to know a word.</span></div>
               <div class="practice-modes" role="group" aria-label="Choose your practice mode">
-                <button class="practice-mode" type="button" data-review-direction="meaning" aria-pressed="true"><span class="mode-symbol" aria-hidden="true">Aa → ✦</span><span class="mode-name">Understand <small>Start here</small></span><span class="mode-description">See the word. Recall its meaning.</span><span class="mode-count">0 ready · 0 practiced</span></button>
-                <button class="practice-mode" type="button" data-review-direction="word" aria-pressed="false"><span class="mode-symbol" aria-hidden="true">✦ → Aa</span><span class="mode-name">Use it <small>Optional challenge</small></span><span class="mode-description">See the meaning. Type the word.</span><span class="mode-count">0 ready · 0 practiced</span></button>
+                <button class="practice-mode" type="button" data-review-direction="meaning" aria-pressed="true"><span class="mode-symbol" aria-hidden="true">Aa → ✦</span><span class="mode-name">Understand <small>Start here</small></span><span class="mode-description">See the word. Recall its meaning.</span><span class="mode-count">0 ready · 0 practiced</span><span class="mode-bar" aria-hidden="true"><span class="mode-bar-fill" data-mode-fill="meaning"></span></span></button>
+                <button class="practice-mode" type="button" data-review-direction="word" aria-pressed="false"><span class="mode-symbol" aria-hidden="true">✦ → Aa</span><span class="mode-name">Use it <small>Optional challenge</small></span><span class="mode-description">See the meaning. Type the word.</span><span class="mode-count">0 ready · 0 practiced</span><span class="mode-bar" aria-hidden="true"><span class="mode-bar-fill" data-mode-fill="word"></span></span></button>
               </div>
-              <section class="review-panel" aria-labelledby="review-title"><div class="review-panel-top"><span class="light-eyebrow">READY WHEN YOU ARE</span><span class="review-chip">Spaced repetition</span></div><div class="review-main"><div><h2 id="review-title">Make it stick.</h2><p id="review-description">Add your first word to begin your practice.</p><button class="button white" id="start-review">Add your first word</button><p class="keyboard-hint">A little recall goes a long way.</p></div><div class="card-stack" aria-hidden="true"><div class="stack-card back"></div><div class="stack-card middle"></div><div class="stack-card front"><span>YOUR NEXT SESSION</span><strong id="due-number">0</strong><small>words to review</small><div class="stack-line"></div><span class="stack-star">✦</span></div></div></div></section>
-              <div class="stats-grid"><div class="stat-card"><span class="stat-icon blue"><svg><use href="#i-book"/></svg></span><div><strong id="total-stat">0</strong><span>words collected</span></div></div><div class="stat-card"><span class="stat-icon green"><svg><use href="#i-check"/></svg></span><div><strong id="reviews-stat">0</strong><span>reviewed today</span></div></div><div class="stat-card"><span class="stat-icon orange"><svg><use href="#i-sun"/></svg></span><div><strong id="streak-stat">0 <small>days</small></strong><span>practice streak</span></div></div></div>
+              <section class="review-panel" aria-labelledby="review-title"><div class="review-panel-top"><span class="light-eyebrow">READY WHEN YOU ARE</span><span class="review-chip">Spaced repetition</span></div><div class="review-main"><div class="review-copy"><h2 id="review-title">Make it stick.</h2><p id="review-description">Add your first word to begin your practice.</p><button class="button white" id="start-review">Add your first word</button><p class="keyboard-hint">A little recall goes a long way.</p></div><div class="card-stack" aria-hidden="true"><div class="stack-card back"></div><div class="stack-card middle"></div><div class="stack-card front"><span>YOUR NEXT SESSION</span><strong id="due-number">0</strong><small>words to review</small><div class="stack-line"></div><span class="stack-star">✦</span></div></div></div></section>
+              <div class="stats-grid"><div class="stat-card"><span class="stat-icon blue"><svg><use href="#i-book"/></svg></span><div><strong id="total-stat">0</strong><span>words collected</span></div></div><div class="stat-card"><span class="stat-icon green"><svg><use href="#i-check"/></svg></span><div><strong id="reviews-stat">0</strong><span>reviewed today</span></div></div><div class="stat-card"><span class="stat-icon orange"><svg><use href="#i-flame"/></svg></span><div><strong id="streak-stat">0 <small>days</small></strong><span>practice streak</span></div></div></div>
               <section class="recent-section"><div class="section-heading"><h2>Fresh in your notebook <span id="recent-count" class="count-label">0</span></h2><button class="text-button" id="see-library">View all words</button></div><div id="recent-words" class="word-list"></div></section>
               <div class="passage-invitation"><div><strong>Finished reading or listening?</strong><p>Find a few words worth keeping, and connect them to the questions.</p></div><button type="button" class="text-button" data-view="passage">Bring in a passage →</button></div>
               <div class="practice-tip"><span class="tip-symbol">✦</span><p><strong>Make it yours.</strong> A sentence from your own life makes a new word easier to remember.</p></div>
@@ -124,6 +129,7 @@
                   <div class="writing-image-meta"><p id="writing-image-help">PNG, JPEG, or WebP · clear labels and figures work best</p><button id="writing-remove-image" type="button" class="text-button" hidden>Remove image</button></div>
                   <p id="writing-image-status" class="form-error" role="status" hidden></p>
                   <div class="writing-label essay-label"><label for="writing-essay">Your essay</label><span id="writing-word-count">0 words · aim for at least 250</span></div>
+                  <div class="writing-word-progress" aria-hidden="true"><div id="writing-word-bar" class="writing-word-bar"></div></div>
                   <textarea id="writing-essay" rows="15" maxlength="16000" required placeholder="Write or paste your response here. Your draft saves as you work…"></textarea>
                   <p id="writing-short-note" class="writing-short-note" hidden>A short draft can be reviewed, but gives less evidence for a band estimate.</p>
                 </fieldset>
@@ -174,6 +180,31 @@
               </form>
             </section>
             <aside class="settings-info"><svg aria-hidden="true"><use href="#i-spark"/></svg><h2>One choice for both tools.</h2><p>Your saved provider powers vocabulary autofill and Writing feedback. Switching takes effect immediately.</p><h3>Keep your own setup</h3><p>Each provider remembers its model and endpoint. Saved keys appear masked. Change key lets you enter a replacement. Connect and save to activate it.</p><h3>Local credentials</h3><p>Keys are stored in the private local file <code>data/ai-settings.json</code>, in plain text. This file is excluded from Git and SQLite backups. Keep it private when copying the project.</p><h3>Using a local proxy</h3><p>CLIProxyAPI must already be running and connected to your provider. Use its client API key and the model alias it exposes. Selecting a proxy does not grant model access by itself.</p><h3>Free and local options</h3><p>Gemini offers a limited free API tier where available. Ollama runs a downloaded model on your computer without a cloud API key. Provider prices, quotas, and model availability still apply.</p></aside>
+          </div>
+        </section>
+
+        <section id="telegram-view" class="view" hidden>
+          <div class="page-heading"><div><p class="eyebrow">A LITTLE PRACTICE, ANYWHERE</p><h1>Keep learning on Telegram.</h1><p class="muted">Private reminders, short reviews, and a place to catch new words.</p></div><span class="badge" id="telegram-current">Loading Telegram settings…</span></div>
+          <div class="settings-layout">
+            <section class="settings-card" aria-label="Private Telegram bot configuration">
+              <form id="telegram-form" autocomplete="off">
+                <fieldset id="telegram-fields" disabled>
+                  <label for="telegram-token">Bot token</label><input id="telegram-token" type="password" maxlength="180" autocomplete="off" spellcheck="false" placeholder="Paste the token from BotFather"><p class="settings-help">Create your own bot: send /newbot to @BotFather in Telegram. Your saved token is never shown here.</p>
+                  <label class="settings-check"><input id="telegram-enabled" type="checkbox">Enable this private Telegram bot</label>
+                  <label class="settings-check"><input id="telegram-reminders" type="checkbox">Send a daily reminder when words are due</label>
+                  <div class="telegram-time-row"><div><label for="telegram-time">Reminder time</label><input id="telegram-time" type="time" value="19:00" required></div><div><label for="telegram-zone">Time zone</label><input id="telegram-zone" type="text" value="Asia/Bangkok" required maxlength="80" placeholder="Asia/Ho_Chi_Minh"></div></div>
+                  <p class="settings-help">Use a time zone such as Asia/Ho_Chi_Minh, Asia/Bangkok, or Europe/London. Reminders make at most one attempt per day, at or after this time while Wordwell is running. No reminders are sent on days with nothing due.</p>
+                  <label class="settings-check"><input id="telegram-ai" type="checkbox">Allow /suggest to request AI card previews</label><p class="settings-help">Off by default. This sends the requested word to your configured AI provider and may cost money. Cards are saved only after you choose Save card.</p>
+                  <label id="telegram-background-row" class="settings-check" hidden><input id="telegram-background" type="checkbox">Keep Wordwell running in the tray when I close its window</label>
+                </fieldset>
+                <div class="settings-actions"><button id="telegram-save" type="submit" class="button primary" disabled>Save Telegram settings</button><button id="telegram-reload" type="button" class="text-button">Reload settings</button></div>
+                <p id="telegram-status" class="settings-status" role="status" aria-live="polite" hidden></p>
+              </form>
+              <div class="telegram-link-actions"><button id="telegram-pair" type="button" class="button secondary" disabled>Generate account-linking code</button><button id="telegram-test" type="button" class="button secondary" disabled>Send test message</button><button id="telegram-disconnect" type="button" class="text-button" disabled>Disconnect and remove token</button></div>
+              <div id="telegram-pairing" class="telegram-pairing" hidden><strong>Open your bot in Telegram and send:</strong><code id="telegram-pair-code"></code><p class="settings-help">This private code expires in 10 minutes and works once. Only the account using it can access your notebook. Never share the code.</p></div>
+              <p id="telegram-runtime-status" class="settings-status" role="status" aria-live="polite"></p>
+            </section>
+            <aside class="settings-info"><svg aria-hidden="true"><use href="#i-telegram"/></svg><h2>Small sessions on your phone.</h2><p><code>/review</code> shows up to five words. Reveal the meaning and rate your recall with Again, Hard, Good, or Easy.</p><p><code>/review use</code> lets you type the English word from its meaning. Both directions keep their own schedules.</p><h3>Catch a new word</h3><p><code>/add portable | Easy to carry.</code> creates a preview. Choose Save card to add it. Existing words, notes, and progress are never replaced.</p><p><code>/stats</code> shows your progress. <code>/pause</code> and <code>/resume</code> control reminders; <code>/stop</code> ends a review.</p><h3>Local means your computer stays on</h3><p>Your computer must be awake, online, and running Wordwell. The portable app can stay in the tray; right-click its tray icon and choose Quit Wordwell to stop it. The web version needs its server running.</p><h3>Keep this bot private</h3><p>Use one bot per installation. Do not run the same token in another bot service. Wordwell ignores groups and unlinked accounts and does not change existing webhooks.</p><p>Tokens are stored in plain text in <code>data/telegram-settings.json</code>, outside Git and SQLite backups. Review and card messages pass through Telegram. No public server or router port is needed.</p></aside>
           </div>
         </section>
 

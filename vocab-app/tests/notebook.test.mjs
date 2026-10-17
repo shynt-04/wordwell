@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DAY, STORAGE_KEY, createWord, cleanFields, scheduleWord, nextInterval, reviewProgress, localDate, practiceStreak, emptyNotebook, validateNotebook, mergeNotebooks, loadNotebook, saveNotebook } from '../dist/notebook.js';
+import { DAY, STORAGE_KEY, resolveTheme, masteryLevel, createWord, cleanFields, scheduleWord, nextInterval, reviewProgress, localDate, practiceStreak, emptyNotebook, validateNotebook, mergeNotebooks, loadNotebook, saveNotebook } from '../dist/notebook.js';
 
 const now = new Date(2026, 9, 7, 12).getTime();
 const makeWord = (word = 'compelling') => createWord({ word, meaning: 'Interesting or convincing', example: 'A compelling argument.' }, now);
@@ -132,3 +132,24 @@ test('failed storage writes propagate and do not alter existing saved data', () 
   assert.throws(() => saveNotebook(storage, { version: 1, words: [makeWord()], reviews: [] }), /Quota exceeded/);
   assert.equal(storage.getItem(STORAGE_KEY), old);
 });
+
+test('theme preference resolves saved light or dark choice and falls back to system preference', () => {
+  assert.equal(resolveTheme('dark', false), 'dark');
+  assert.equal(resolveTheme('light', true), 'light');
+  assert.equal(resolveTheme(null, true), 'dark');
+  assert.equal(resolveTheme(null, false), 'light');
+  assert.equal(resolveTheme('invalid', false), 'light');
+});
+
+test('mastery level tracks independent recall progress from 0 to 4 across directions', () => {
+  let word = makeWord();
+  assert.equal(masteryLevel(word, 'meaning'), 0);
+  assert.equal(masteryLevel(word, 'word'), 0);
+  word = scheduleWord(word, 'again', now, 'meaning');
+  assert.equal(masteryLevel(word, 'meaning'), 1);
+  assert.equal(masteryLevel(word, 'word'), 0);
+  for (let i = 0; i < 5; i++) word = scheduleWord(word, 'good', now + (i + 1) * DAY, 'meaning');
+  assert.equal(masteryLevel(word, 'meaning'), 4);
+  assert.equal(masteryLevel(word, 'word'), 0);
+});
+

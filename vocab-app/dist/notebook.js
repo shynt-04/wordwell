@@ -146,3 +146,17 @@ export function loadNotebook(storage) {
 }
 
 export function saveNotebook(storage, notebook) { storage.setItem(STORAGE_KEY, JSON.stringify(notebook)); }
+
+export const THEME_KEY = 'wordwell.theme.v1';
+
+export function resolveTheme(saved, prefersDark = false) {
+  if (saved === 'dark' || saved === 'light') return saved;
+  return prefersDark ? 'dark' : 'light';
+}
+
+export function masteryLevel(word, direction = 'meaning') {
+  const progress = reviewProgress(word, direction);
+  if (progress.lastReviewedAt === null) return 0;
+  return Math.min(4, Math.max(1, progress.repetitions));
+}
+

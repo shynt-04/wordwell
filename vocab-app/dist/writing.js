@@ -42,6 +42,11 @@ export async function initWriting() {
     const words = countWords(controls.essay.value);
     const minimum = controls.task.value === 'task1' ? 150 : 250;
     $('writing-word-count').textContent = `${words} ${words === 1 ? 'word' : 'words'} · aim for at least ${minimum}`;
+    const bar = $('writing-word-bar');
+    if (bar) {
+      bar.style.width = `${Math.min(100, Math.round((words / minimum) * 100))}%`;
+      bar.classList.toggle('ready', words >= minimum);
+    }
     $('writing-short-note').hidden = !words || words >= minimum;
     $('writing-stale-note').hidden = !draft.assessment || sameWritingInput(input(), draft.assessedInput);
   };
@@ -110,9 +115,14 @@ export async function initWriting() {
     if (!report) return;
     const task1 = draft.assessedInput.task === 'task1';
     const names = { task: task1 ? 'Task Achievement' : 'Task Response', coherence: 'Coherence & Cohesion', vocabulary: 'Lexical Resource', grammar: 'Grammatical Range & Accuracy' };
-    $('writing-panel-assessment').innerHTML = `<div class="writing-band"><div><p>Estimated task band</p><strong>${report.overallBand.toFixed(1)}</strong></div><div class="band-meta"><p>${task1 ? 'Academic Task 1' : 'Task 2'}</p><small>${report.wordCount} words<br>${escape(report.confidence)} confidence</small></div></div>
+    const ringFill = Math.max(0, Math.min(100, Math.round((report.overallBand / 9) * 100)));
+    $('writing-panel-assessment').innerHTML = `<div class="writing-band"><div class="band-score-wrap"><div class="band-ring" aria-hidden="true"><svg viewBox="0 0 36 36"><circle class="band-ring-track" cx="18" cy="18" r="15.5"/><circle class="band-ring-fill" cx="18" cy="18" r="15.5" stroke-dasharray="${ringFill}, 100"/></svg><span>/9</span></div><div><p>Estimated task band</p><strong>${report.overallBand.toFixed(1)}</strong></div></div><div class="band-meta"><p>${task1 ? 'Academic Task 1' : 'Task 2'}</p><small>${report.wordCount} words<br>${escape(report.confidence)} confidence</small></div></div>
       <p class="writing-summary">${escape(report.summary)}</p>
-      <div class="writing-criteria">${Object.entries(names).map(([key, label]) => `<div class="criterion"><div class="criterion-title"><span>${label}</span><strong>${report.criteria[key].band.toFixed(1)}</strong></div><p>${escape(report.criteria[key].reason)}</p></div>`).join('')}</div>
+      <div class="writing-criteria">${Object.entries(names).map(([key, label]) => {
+        const band = report.criteria[key].band;
+        const pct = Math.max(0, Math.min(100, Math.round((band / 9) * 100)));
+        return `<div class="criterion"><div class="criterion-title"><span>${label}</span><strong>${band.toFixed(1)}</strong></div><div class="criterion-bar" aria-hidden="true"><div style="width:${pct}%"></div></div><p>${escape(report.criteria[key].reason)}</p></div>`;
+      }).join('')}</div>
       ${items('What you did well', report.strengths)}${items('Focus on these next', report.priorities, true)}
       ${report.imageSummary ? `<details class="writing-image-reading"><summary>How AI read your image</summary><p>${escape(report.imageSummary)}</p></details>` : ''}
       ${items('Assessment limitations', report.limitations, false, 'writing-limitations')}`;

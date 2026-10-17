@@ -14,6 +14,7 @@ A local IELTS practice app for building vocabulary with spaced repetition and ge
 - **From a passage:** Paste a reading passage or listening transcript and optional questions as text or ordered screenshots. Check extracted text, explore supported synonym/paraphrase connections, and preview only the cards you choose to save.
 - **Writing practice:** Submit a question, essay, and optional image for estimated bands, corrections, and an improved response. Feedback is available in English or Vietnamese.
 - **Local storage:** Keep vocabulary, review history, and your current Writing draft in SQLite, with database and vocabulary JSON backups.
+- **Private Telegram bot:** Daily reminders, five-word reviews in either direction, and confirmed card previews. Optional tray mode keeps the desktop app running with its window hidden.
 
 ## Quick start
 
@@ -49,14 +50,27 @@ Choose **Continue without AI** to use manual vocabulary entry and reviews offlin
 
 For screenshots, select an image-capable model and **Enable image input**. In **From a passage**, paste with `Ctrl+V`, upload, or drag in up to four images per section. Extract and correct the text before finding cards. Unsaved material stays in the open tab only; saved cards retain context and question connections. Submissions go to your provider and may incur usage charges.
 
+## Telegram setup
+
+1. In Telegram, send `/newbot` to **@BotFather** to create your own bot.
+2. Open **Telegram** in Wordwell, paste its token, enable the bot, and save.
+3. Generate an account-linking code and send the displayed `/start ...` command to your bot. The private code expires in ten minutes and works once.
+
+Use `/help`, `/review`, `/review use`, `/add word | meaning`, `/stats`, `/pause`, `/resume`, and `/stop`. New cards need **Save card** confirmation; existing words are not overwritten. `/suggest word` uses your selected AI provider only when **Allow /suggest** is enabled, and may incur charges.
+
+Choose a daily reminder time and time zone. Your computer must stay awake, online, and running Wordwell. The portable app can **keep running in the tray**; right-click its icon and choose **Quit Wordwell** to stop it. There is no service running after the computer shuts down. Failed reminder attempts are not automatically repeated that day; use **Send test message** to check connectivity.
+
+Use one bot per installation. Groups and unlinked accounts are ignored. Existing webhooks are not changed, and no public server or router port is needed. Bot messages pass through Telegram. Keep your token and pairing code private. If Telegram changes your notebook while the desktop/web page is open, choose **Load notebook updates** before saving; current form text is kept.
+
 ## Data and backups
 
-Wordwell creates these files locally; both are excluded from Git:
+Wordwell creates these files locally; all are excluded from Git:
 
 | File | Contents |
 | --- | --- |
 | `data/wordwell.sqlite` | Vocabulary, review history, and the current Writing draft, image, and feedback |
 | `data/ai-settings.json` | Provider settings and API keys, stored in plain text |
+| `data/telegram-settings.json` | Bot token, linked account, and reminder settings, stored in plain text; excluded from SQLite backups |
 
 Use **Backup & restore → Download SQLite backup** for a complete learning-data backup. To restore, stop Wordwell, keep a copy of the current database, replace `data/wordwell.sqlite` with your backup, and restart. Vocabulary JSON backups cover vocabulary and reviews only; neither backup includes AI credentials.
 
