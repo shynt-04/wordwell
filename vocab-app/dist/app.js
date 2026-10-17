@@ -226,7 +226,7 @@ function showDetail(id) {
     return `<div><div class="direction-head"><strong>${direction === 'word' ? 'Use it' : 'Understand'}</strong>${masteryPips(word, direction)}</div><span>${escape(nextReviewLabel(word, direction))}</span><small>${count} successful ${count === 1 ? 'review' : 'reviews'} since last retry</small><div class="direction-bar" aria-hidden="true"><div style="width:${level * 25}%"></div></div></div>`;
   }).join('')}</div>`;
   $('#word-detail').innerHTML = `<div class="dialog-heading">${badge(word)}<button class="icon-button" data-close="word-dialog" aria-label="Close word details">${icon('close')}</button></div><div class="detail-title"><h2>${escape(word.word)}</h2><button class="icon-button" data-action="speak" data-id="${escape(word.id)}" aria-label="Listen to ${escape(word.word)}">${icon('audio')}</button></div>${word.pronunciation ? `<p class="detail-ipa">${escape(word.pronunciation)}</p>` : ''}${details(word)}${progress}<div class="detail-actions"><button class="button secondary" data-action="edit" data-id="${escape(word.id)}">${icon('edit')}Edit word</button><button class="button danger" data-action="delete" data-id="${escape(word.id)}">${icon('trash')}Delete</button></div>`;
-  $('#word-dialog').showModal();
+  $('#word-dialog').showModal(); $('#word-dialog').scrollTop = 0;
 }
 
 function speak(word) {
@@ -243,7 +243,7 @@ function showEditor(id) {
   const word = getWord(id); if (!word) return;
   editId = id; $('#word-dialog').close();
   for (const name of ['word', 'meaning', 'pronunciation', 'synonyms', 'example', 'note']) $(`#edit-${name}`).value = word[name];
-  $('#edit-error').hidden = true; $('#edit-dialog').showModal(); $('#edit-word').focus();
+  $('#edit-error').hidden = true; $('#edit-dialog').showModal(); $('#edit-dialog').scrollTop = 0; $('#edit-word').focus({ preventScroll: true });
 }
 
 async function handleEdit(event) {
@@ -290,7 +290,7 @@ function startReview() {
   if (session || commitPending) return;
   session = createReviewSession(notebook.words, reviewDirection);
   if (!session.queue.length) { session = null; focusAdd(); return; }
-  renderReview(); $('#review-dialog').showModal(); focusReview();
+  renderReview(); $('#review-dialog').showModal(); $('#review-dialog').scrollTop = 0; focusReview();
 }
 
 function renderReview() {
@@ -299,14 +299,16 @@ function renderReview() {
   session.queue = session.queue.filter(card => getWord(card.id));
   if (!session.queue.length) {
     $('#review-content').innerHTML = `<div class="session-complete"><div class="success-circle">${icon('check')}</div><span class="practice-tag">${session.direction === 'word' ? 'USE IT' : 'UNDERSTAND'}</span><h2>A little more remembered.</h2><p>You practiced ${session.completed} ${session.completed === 1 ? 'word' : 'words'} ${session.direction === 'word' ? 'from meaning to English' : 'from English to meaning'}. Your next reviews are saved. Small sessions add up.</p><button class="button primary" data-action="finish-review">Back to my notebook</button></div>`;
-    if ($('#review-dialog').open) $('[data-action="finish-review"]').focus();
+    $('#review-dialog').scrollTop = 0;
+    if ($('#review-dialog').open) $('[data-action="finish-review"]')?.focus({ preventScroll: true });
     return;
   }
   const card = readyCard(session);
   if (!card) {
     $('#review-content').innerHTML = `${reviewHeader()}<div class="session-complete retry-wait"><div class="pause-circle">${icon('sun')}</div><span class="practice-tag">A MOMENT TO LET IT SETTLE</span><h2>A breather helps.</h2><p>Your ${session.queue.length === 1 ? 'word will' : 'words will'} return after a short gap, not right away. Take a breath or think of a sentence from your own life.</p><div class="retry-countdown"><strong id="retry-countdown"></strong><span>until your next retry</span></div><p class="retry-saved">Your progress is saved. You can leave and return later.</p><button class="button secondary" data-action="finish-review">Finish for now</button></div>`;
+    $('#review-dialog').scrollTop = 0;
     tickRetry();
-    if ($('#review-dialog').open) $('[data-action="finish-review"]').focus();
+    if ($('#review-dialog').open) $('[data-action="finish-review"]')?.focus({ preventScroll: true });
     return;
   }
   session.currentId = card.id;
@@ -320,11 +322,14 @@ function renderReview() {
     ? '<form id="recall-form" class="recall-form"><label for="recall-answer">Which English word or phrase fits?</label><input id="recall-answer" name="answer" type="text" required maxlength="120" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="Give it a try…" aria-describedby="recall-help"><p id="recall-help">An attempt is enough. Compare first, then rate your own recall.</p><button type="submit" class="button primary">Compare my answer</button><button type="button" class="text-button" data-action="forgot">I don’t remember yet</button></form>'
     : '<p class="review-prompt">What does it mean? Say it to yourself before you take a peek.</p>';
   $('#review-content').innerHTML = `${reviewHeader()}<div class="review-progress" role="progressbar" aria-label="Words completed" aria-valuemin="0" aria-valuemax="${session.total}" aria-valuenow="${session.completed}"><div style="width:${percentage}%"></div></div><div class="review-body"><div class="review-counter">${session.completed} OF ${session.total} WORDS COMPLETED</div><div class="flashcard-stage ${session.revealed ? 'is-revealed' : ''}">${question}${answer}</div></div><div class="review-bottom">${session.revealed ? `<p>${productive ? 'Rate your recall, not just a spelling match.' : 'How well did you remember it?'}</p><div class="ratings">${['again', 'hard', 'good', 'easy'].map(rating => `<button class="rating ${rating}" data-action="rate" data-rating="${rating}"><strong>${rating[0].toUpperCase() + rating.slice(1)}</strong><span>${intervalLabel(nextInterval(reviewProgress(word, session.direction), rating))}</span></button>`).join('')}</div><div class="review-shortcuts"><kbd>1</kbd> Again &nbsp; <kbd>2</kbd> Hard &nbsp; <kbd>3</kbd> Good &nbsp; <kbd>4</kbd> Easy</div>` : productive ? '' : '<button class="button primary reveal-button" data-action="reveal">Reveal meaning</button><div class="review-shortcuts">Press <kbd>Space</kbd> to reveal</div>'}</div>`;
+  $('#review-dialog').scrollTop = 0;
+  const reviewBody = $('#review-content .review-body');
+  if (reviewBody) reviewBody.scrollTop = 0;
   if ($('#review-dialog').open) focusReview();
 }
 
 function reviewHeader() { return `<div class="review-header"><h2>${session.direction === 'word' ? 'Use it' : 'Understand'} <span>Daily practice</span></h2><button class="icon-button" data-action="exit-review" aria-label="End review session">${icon('close')}</button></div>`; }
-function focusReview() { $(session.revealed ? `[data-rating="${session.forgot ? 'again' : 'good'}"]` : session.direction === 'word' ? '#recall-answer' : '[data-action="reveal"]')?.focus(); }
+function focusReview() { $(session.revealed ? `[data-rating="${session.forgot ? 'again' : 'good'}"]` : session.direction === 'word' ? '#recall-answer' : '[data-action="reveal"]')?.focus({ preventScroll: true }); }
 function tickRetry() {
   if (!session || !$('#retry-countdown')) return;
   const remaining = Math.ceil(retryDelay(session) / 1000);

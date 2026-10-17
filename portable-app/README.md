@@ -4,7 +4,7 @@ Standalone Windows x64 application using the same Wordwell source as the website
 
 ## Run
 
-Download `Wordwell-1.0.0-portable-x64.exe` from the [latest GitHub Release](https://github.com/shynt-04/wordwell/releases/latest), or build it locally in `release/`. Double-click the executable from a writable folder. First launch may take a few seconds while the runtime extracts. The app opens its own window and stops its local server when closed. Manual vocabulary and reviews work offline; cloud AI requires internet and your own provider setup. Local models/proxies still need to be installed and running separately.
+Download `Wordwell-1.0.1-portable-x64.exe` from the [latest GitHub Release](https://github.com/shynt-04/wordwell/releases/latest), or build it locally in `release/`. Double-click the executable from a writable folder. First launch may take a few seconds while the runtime extracts. The app opens its own window and stops its local server when closed. Manual vocabulary and reviews work offline; cloud AI requires internet and your own provider setup. Local models/proxies still need to be installed and running separately.
 
 An unsigned development build may show a Windows SmartScreen warning. Only run builds from a source you trust. Code signing is not configured in this repository.
 

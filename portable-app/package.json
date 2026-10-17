@@ -1,7 +1,7 @@
 {
   "name": "wordwell-portable",
   "productName": "Wordwell",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Portable Wordwell vocabulary and IELTS practice app",
   "author": "Wordwell contributors",
   "license": "GPL-3.0-only",

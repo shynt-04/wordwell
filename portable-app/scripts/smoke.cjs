@@ -164,6 +164,10 @@ let running;
     for (let i = 0; i < 50 && document.querySelector('[data-view="today"]').getAttribute('aria-current') !== 'page'; i++) await new Promise(resolve => setTimeout(resolve, 50));
     document.querySelector('#word').value = 'portable';
     document.querySelector('#meaning').value = 'Easy to carry.\\n-> Có thể mang theo';
+    document.querySelector('#pronunciation').value = '/ˈpɔː.tə.bəl/';
+    document.querySelector('#synonyms').value = 'transportable, mobile';
+    document.querySelector('#example').value = 'City reservoirs emptied faster than anyone had planned for.\\nIn one state capital, they fell below a quarter full.';
+    document.querySelector('#note').value = 'Listening transcript\\n\\nLearn now: High-utility vocabulary for IELTS Listening and Reading topics dealing with climate, drought, and urban utilities.';
     document.querySelector('#add-form').requestSubmit();
     for (let i = 0; i < 100; i++) {
       const s = await (await fetch('/api/storage/notebook')).json();
@@ -181,6 +185,20 @@ let running;
     document.querySelector('#theme-toggle').click();
     return Boolean(initial) && toggled !== initial && document.documentElement.dataset.theme === initial && document.querySelectorAll('#recent-words .mastery-pips i').length === 4;
   })()`), true);
+  assert.equal(await running.evaluate(`(() => {
+    document.querySelector('#start-review').click();
+    document.querySelector('[data-action="reveal"]').click();
+    const dialog = document.querySelector('#review-dialog');
+    const header = dialog.querySelector('.review-header').getBoundingClientRect();
+    const body = dialog.querySelector('.review-body').getBoundingClientRect();
+    const word = dialog.querySelector('.review-word').getBoundingClientRect();
+    const good = dialog.querySelector('[data-rating="good"]').getBoundingClientRect();
+    const dialogBox = dialog.getBoundingClientRect();
+    const visible = dialog.scrollTop === 0 && header.top >= dialogBox.top - 1 && word.top >= body.top && good.bottom <= dialogBox.bottom + 1;
+    dialog.querySelector('[data-action="exit-review"]').click();
+    document.querySelector('#confirm-actions .button.primary').click();
+    return visible && !dialog.open;
+  })()`), true, 'revealing a full flashcard must not clip the header, word title, or rating buttons');
   assert.equal(await running.evaluate(`(async () => {
     document.querySelector('[data-view="writing"]').click();
     for (const [id, text] of [['writing-question', 'Discuss the benefits of portable learning.'], ['writing-essay', 'A portable notebook makes it easier to practice every day.']]) {

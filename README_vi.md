@@ -9,7 +9,7 @@ Wordwell giúp bạn học từ vựng và luyện viết IELTS trên máy tính
 Cách đơn giản nhất cho Windows:
 
 1. Mở [trang tải Wordwell](https://github.com/shynt-04/wordwell/releases/latest).
-2. Trong phần **Assets**, tải tệp `Wordwell-1.0.0-portable-x64.exe`.
+2. Trong phần **Assets**, tải tệp `Wordwell-1.0.1-portable-x64.exe`.
 3. Đặt tệp vào một thư mục riêng, ví dụ trong Documents, rồi nhấp đúp để mở.
 
 Bản này dành cho Windows 64-bit. Bạn không cần cài đặt ứng dụng hay cài thêm Node.js. Lần đầu mở có thể mất vài giây.
